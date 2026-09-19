@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>水面智慧浮動太陽能發電系統 - 管理控制台</title>
+  <link rel="stylesheet" href="assets/css/management-console.css">
+</head>
+
+<body>
+
+  <div class="app-wrapper">
+
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <div class="brand-icon"></div>
+          <span>Hexagon Solar</span>
+        </div>
+      </div>
+      <nav class="nav-menu">
+        <div class="nav-item active" data-page="overview">
+          <span class="nav-icon">⌂</span><span>系統總覽</span>
+        </div>
+        <div class="nav-item" data-page="devices">
+          <span class="nav-icon">⬢</span><span>裝置管理</span>
+        </div>
+        <div class="nav-item" data-page="storage">
+          <span class="nav-icon">▤</span><span>儲存監控</span>
+        </div>
+        <div class="nav-item" data-page="power">
+          <span class="nav-icon">⚡</span><span>發電日誌</span>
+        </div>
+        <div class="nav-item" data-page="alerts">
+          <span class="nav-icon">⚠</span><span>警報日誌</span>
+        </div>
+        <div class="nav-item" data-page="settings">
+          <span class="nav-icon">⚙</span><span>系統設定</span>
+        </div>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="sidebar-user-info" onclick="openUserMenu()" title="點擊檢視使用者資訊">
+          <div class="user-avatar" id="sideUserAvatar" style="width:30px; height:30px; font-size:12px">A</div>
+          <div class="sidebar-user-text">
+            <span class="sidebar-user-name" id="sideUserName">Admin User</span>
+            <span class="sidebar-user-role" id="sideUserRole">Administrator</span>
+          </div>
+        </div>
+        <div class="sidebar-footer-actions">
+          <button class="btn-icon-footer" onclick="lockScreen()" title="鎖定螢幕 Lock Screen">🔒</button>
+          <button class="btn-icon-footer danger" onclick="performLogout(false)" title="安全登出 Logout">⏻</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="top-bar">
+        <div class="search-box">
+          <input type="text" id="globalSearch" placeholder="搜尋系統、裝置ID、關鍵字..."
+            onkeydown="if(event.key==='Enter')doSearch(this.value)">
+        </div>
+        <div class="top-actions">
+          <label class="language-switch">
+            <span data-language-label>語言</span>
+            <select data-language-select aria-label="Language">
+              <option value="zh-TW" lang="zh-TW">繁體中文</option>
+              <option value="en" lang="en">English</option>
+            </select>
+          </label>
+          <div id="guestModeIndicator" style="display:none" class="role-badge guest">👁 訪客唯讀模式</div>
+          <div class="top-action notification-badge" onclick="openNotifications()">🔔 Notifications</div>
+          <div class="top-action" onclick="navToSettings()">⚙ Settings</div>
+          <div class="user-profile-trigger" id="userMenuBtn" onclick="openUserMenu()" title="點擊檢視使用者資訊與登出">
+            <div class="user-avatar" id="topUserAvatar">A</div>
+            <div style="display:flex; flex-direction:column; align-items:flex-start; line-height:1.2">
+              <span id="topUserName" style="font-weight:600; font-size:13px; color:var(--text-primary)">Admin
+                User</span>
+              <span id="topUserRole"
+                style="font-size:10px; color:var(--accent-on); font-family:var(--font-tech)">Administrator</span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div class="page-content">
+
+        <!-- 系統總覽 -->
+        <section class="page-section active" id="page-overview">
+          <div class="page-header">
+            <h1 class="page-title">Generation System Dashboard 發電系統控制台</h1>
+          </div>
+
+          <div class="dashboard-layout">
+
+            <!-- 左側資訊欄 -->
+            <div class="left-panels">
+              <div class="panel" data-panel="overview">
+                <div class="panel-title">System Overview 系統總覽 <span class="expand-icon"
+                    onclick="togglePanel('overview')">▼</span></div>
+                <div class="panel-body">
+                  <div class="stat-card">
+                    <span class="stat-label">裝置總數 Total Devices</span>
+                    <span class="stat-value" id="statTotal">8</span>
+                  </div>
+                  <div class="stat-card">
+                    <span class="stat-label">運行中 Active</span>
+                    <span class="stat-value" id="statActive" style="color: var(--accent-on)">1</span>
+                  </div>
+                  <div class="stat-card">
+                    <span class="stat-label">待機中 Idle</span>
+                    <span class="stat-value" id="statIdle" style="color: var(--accent-warning)">7</span>
+                  </div>
+                  <div class="stat-card">
+                    <span class="stat-label">離線 Offline</span>
+                    <span class="stat-value" id="statOffline" style="color: var(--accent-off)">0</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="panel" data-panel="output">
+                <div class="panel-title">Real-time Output 即時輸出 <span class="expand-icon"
+                    onclick="togglePanel('output')">▼</span></div>
+                <div class="panel-body">
+                  <div class="stat-card">
+                    <span class="stat-label">目前輸出 Current Output</span>
+                    <span class="stat-value">42 kWh</span>
+                  </div>
+                  <div class="stat-card">
+                    <span class="stat-label">尖峰負載 Peak Load</span>
+                    <span class="stat-value">78 kWh</span>
+                  </div>
+                  <div class="stat-card">
+                    <span class="stat-label">累計發電 Power Log</span>
+                    <span class="stat-value">72 kWh</span>
+                  </div>
+                  <div class="progress-bar" style="margin-top:12px">
+                    <div class="progress-fill" style="width: 54%"></div>
+                  </div>
+                  <div
+                    style="font-size:10px; color:var(--text-muted); margin-top:6px; display:flex; justify-content:space-between">
+                    <span>Load: 54%</span><span>Capacity: 100kWh</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="panel" data-panel="network">
+                <div class="panel-title">Network Comm 網絡連接 <span class="expand-icon"
+                    onclick="togglePanel('network')">▼</span></div>
+                <div class="panel-body">
+                  <div class="network-row">
+                    <div class="network-status"><span class="status-dot" id="netStatusDot"></span>通訊狀態 Comm Status</div>
+                    <span id="netStatusText" style="color:var(--accent-on)">Standby (ESP-NOW)</span>
+                  </div>
+                  <div class="network-row">
+                    <div class="network-status"><span class="status-dot"></span>通道協定 Protocol</div>
+                    <span id="netProtocolText"
+                      style="color:var(--accent-on); font-size:11px; font-family:var(--font-tech)">ESP-NOW 2.0 (802.11
+                      LR)</span>
+                  </div>
+                  <div class="network-row">
+                    <div class="network-status"><span class="status-dot warn" id="netModeDot"></span>數據模式 Mode</div>
+                    <span id="netHardwareMode" style="color:var(--accent-warning); font-size:11px">Simulation
+                      Mode</span>
+                  </div>
+                  <div class="network-row">
+                    <div class="network-status"><span class="status-dot"></span>中繼基站 Gateway</div>
+                    <span id="netRelayNode"
+                      style="color:var(--accent-purple); font-family:var(--font-tech); font-size:11px">Base-001</span>
+                  </div>
+                  <div class="network-row">
+                    <div class="network-status"><span class="status-dot"></span>已接收封包 Packets</div>
+                    <span id="netRxPackets"
+                      style="color:var(--accent-on); font-family:var(--font-tech); font-size:11px">0 pkts</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="control-row">
+                <div class="control-label">
+                  <span>🏠</span>
+                  <span>現場環境</span>
+                </div>
+                <div class="toggle-switch active" id="envToggle" onclick="toggleEnv()"></div>
+              </div>
+            </div>
+
+            <!-- 中間六邊形視覺化 -->
+            <div class="center-visual">
+              <div class="visual-toolbar">
+                <button class="toolbar-btn primary" onclick="generateDefault()">⬢ 產生蜂窩</button>
+                <button class="toolbar-btn" onclick="findPath()">⎆ 最佳連接路徑</button>
+                <button class="toolbar-btn" onclick="clearCanvas()">⟲ 清除</button>
+                <button class="toolbar-btn toggle active" id="toggleLabel" onclick="toggleLabels()">⚑ 顯示標籤</button>
+              </div>
+
+              <div class="hexagon-canvas-wrapper">
+                <canvas id="hexCanvas"></canvas>
+              </div>
+
+              <div class="control-buttons">
+                <button class="control-btn active" onclick="setViewMode('id')">① ID 模式</button>
+                <button class="control-btn" onclick="setViewMode('power')">⚡ 功率模式</button>
+                <button class="control-btn" onclick="setViewMode('temp')">🌡 溫度模式</button>
+                <button class="control-btn" onclick="setViewMode('signal')">📶 訊號模式</button>
+              </div>
+
+              <div style="margin-top:16px; display:grid; grid-template-columns: repeat(2,1fr); gap:10px">
+                <button class="control-btn" onclick="allOn()">⏻ 全部啟動</button>
+                <button class="control-btn" onclick="allOff()">⏼ 全部停止</button>
+              </div>
+
+              <div class="base-station" id="baseStationCard">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+                  <div class="control-label" style="font-size:14px; margin-bottom:0">
+                    <span>🏠</span><span style="color:var(--accent-on); font-family:var(--font-tech)">BASE 基站 (ESP-NOW
+                      網關)</span>
+                  </div>
+                  <span id="baseConnBadge" class="status-pill warning" style="font-size:10px; cursor:pointer"
+                    onclick="toggleBaseMode()" title="點擊切換模式">SIMULATION 模擬</span>
+                </div>
+
+                <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; margin-bottom:12px">
+                  <div
+                    style="text-align:center; background:rgba(0,229,200,0.04); padding:6px 2px; border-radius:4px; border:1px solid rgba(0,229,200,0.15)">
+                    <div style="font-size:16px; font-family:var(--font-tech); color:var(--accent-on)"
+                      id="baseActiveLinks">8</div>
+                    <div style="font-size:9px; color:var(--text-muted)">Active Nodes</div>
+                  </div>
+                  <div
+                    style="text-align:center; background:rgba(0,229,200,0.04); padding:6px 2px; border-radius:4px; border:1px solid rgba(0,229,200,0.15)">
+                    <div style="font-size:16px; font-family:var(--font-tech); color:var(--accent-purple)"
+                      id="baseRxCount">0</div>
+                    <div style="font-size:9px; color:var(--text-muted)">ESP-NOW RX</div>
+                  </div>
+                  <div
+                    style="text-align:center; background:rgba(0,229,200,0.04); padding:6px 2px; border-radius:4px; border:1px solid rgba(0,229,200,0.15)">
+                    <div style="font-size:16px; font-family:var(--font-tech); color:var(--accent-warning)"
+                      id="baseLatency">12ms</div>
+                    <div style="font-size:9px; color:var(--text-muted)">Latency</div>
+                  </div>
+                  <div
+                    style="text-align:center; background:rgba(0,229,200,0.04); padding:6px 2px; border-radius:4px; border:1px solid rgba(0,229,200,0.15)">
+                    <div style="font-size:16px; font-family:var(--font-tech); color:var(--text-primary)"
+                      id="baseTxCount">0</div>
+                    <div style="font-size:9px; color:var(--text-muted)">ESP-NOW TX</div>
+                  </div>
+                </div>
+
+                <div
+                  style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; background:rgba(0,0,0,0.25); border-radius:4px; margin-bottom:12px; font-size:11px">
+                  <span style="color:var(--text-secondary)">連線端點：<b id="baseEndpointLabel"
+                      style="color:var(--accent-on); font-family:var(--font-tech)">未連接 (模擬模式)</b></span>
+                  <span id="baseMacDisplay"
+                    style="color:var(--text-muted); font-family:var(--font-tech); font-size:10px">MAC:
+                    24:6F:28:AA:BB:00</span>
+                </div>
+
+                <!-- 實體連線按鈕區 -->
+                <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:8px; margin-bottom:10px">
+                  <button class="toolbar-btn primary" id="btnConnectSerial" onclick="handleConnectSerial()"
+                    style="justify-content:center; padding:8px 6px">
+                    <span>🔌</span><span id="btnSerialText">連線 ESP32 (USB Serial)</span>
+                  </button>
+                  <button class="toolbar-btn" id="btnConnectWs" onclick="openWsConnectModal()"
+                    style="justify-content:center; padding:8px 6px">
+                    <span>📶</span><span>Wi-Fi 網關 (WebSocket)</span>
+                  </button>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; gap:6px">
+                  <button class="toolbar-btn" onclick="openSerialTerminalModal()"
+                    style="flex:1; justify-content:center; font-size:11px; padding:6px 4px"
+                    title="檢視即時 ESP-NOW 數據封包終端機">
+                    <span>📟</span><span>通訊終端</span>
+                  </button>
+                  <button class="toolbar-btn" onclick="openFirmwareModal()"
+                    style="flex:1; justify-content:center; font-size:11px; padding:6px 4px" title="檢視與下載 ESP32 韌體程式碼">
+                    <span>📥</span><span>ESP32 韌體</span>
+                  </button>
+                  <button class="toolbar-btn" onclick="injectTestHardwarePacket()"
+                    style="font-size:11px; padding:6px 8px" title="模擬注入一筆真實 ESP32 遙測封包">
+                    <span>🧪</span><span>注入測試</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="zoom-controls">
+                <button class="zoom-btn" onclick="zoomHex(-0.15)">◀</button>
+                <button class="zoom-btn" onclick="zoomHex(-0.1)">−</button>
+                <button class="zoom-btn" onclick="resetZoom()">⊕</button>
+                <button class="zoom-btn" onclick="zoomHex(0.1)">+</button>
+                <button class="zoom-btn" onclick="zoomHex(0.15)">▶</button>
+              </div>
+            </div>
+
+            <!-- 右側圖表面板 -->
+            <div class="right-panels">
+              <div class="panel">
+                <div class="panel-title">Reservoir Storage 水庫儲存</div>
+                <div class="chart-container">
+                  <svg class="line-chart-svg" viewBox="0 0 280 110" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#00e5c8" stop-opacity="0.3" />
+                        <stop offset="100%" stop-color="#00e5c8" stop-opacity="0" />
+                      </linearGradient>
+                    </defs>
+                    <polyline fill="url(#areaGrad)" stroke="none"
+                      points="0,85 40,40 80,20 120,50 160,65 200,60 240,40 280,15 280,110 0,110" />
+                    <polyline fill="none" stroke="#00e5c8" stroke-width="2.5" stroke-linecap="round"
+                      stroke-linejoin="round" points="0,85 40,40 80,20 120,50 160,65 200,60 240,40 280,15"
+                      style="filter: drop-shadow(0 0 4px rgba(0,229,200,0.8))" />
+                    <g stroke="rgba(0,229,200,0.15)" stroke-width="1">
+                      <line x1="0" y1="27.5" x2="280" y2="27.5" />
+                      <line x1="0" y1="55" x2="280" y2="55" />
+                      <line x1="0" y1="82.5" x2="280" y2="82.5" />
+                    </g>
+                  </svg>
+                </div>
+                <div class="chart-days">
+                  <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-title">Running Status 運行狀態</div>
+                <div class="gauge-container">
+                  <div class="gauge-wrapper">
+                    <svg class="gauge-svg" viewBox="0 0 120 120">
+                      <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(199,125,255,0.15)" stroke-width="12" />
+                      <circle cx="60" cy="60" r="50" fill="none" stroke="url(#gaugeGrad)" stroke-width="12"
+                        stroke-linecap="round" stroke-dasharray="314" stroke-dashoffset="188"
+                        style="filter: drop-shadow(0 0 6px rgba(199,125,255,0.6))" />
+                      <defs>
+                        <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="1">
+                          <stop offset="0%" stop-color="#c77dff" />
+                          <stop offset="100%" stop-color="#00e5c8" />
+                        </linearGradient>
+                      </defs>
+                    </svg>
+                    <div class="gauge-center-text">
+                      <div class="gauge-value">40%</div>
+                      <div class="gauge-label">In-Use</div>
+                    </div>
+                  </div>
+                  <div class="status-list">
+                    <div class="status-item">
+                      <span class="status-label">In-Use:</span>
+                      <span class="status-value">40%</span>
+                    </div>
+                    <div class="status-item">
+                      <span class="status-label">Idle:</span>
+                      <span class="status-value">60%</span>
+                    </div>
+                    <div class="status-item"
+                      style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(0,229,200,0.15)">
+                      <span class="status-label">整體狀態:</span>
+                      <span class="status-value">Normal</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-title">Daily Generated 日發電量</div>
+                <div class="chart-container">
+                  <svg class="bar-chart-svg" viewBox="0 0 280 120" preserveAspectRatio="none">
+                    <g stroke="rgba(0,229,200,0.1)" stroke-width="1">
+                      <line x1="0" y1="30" x2="280" y2="30" />
+                      <line x1="0" y1="60" x2="280" y2="60" />
+                      <line x1="0" y1="90" x2="280" y2="90" />
+                    </g>
+                    <g>
+                      <rect x="20" y="70" width="28" height="40" rx="3" fill="#c77dff"
+                        style="filter: drop-shadow(0 0 4px rgba(199,125,255,0.6))" />
+                      <rect x="70" y="30" width="28" height="80" rx="3" fill="#c77dff"
+                        style="filter: drop-shadow(0 0 4px rgba(199,125,255,0.6))" />
+                      <rect x="120" y="40" width="28" height="70" rx="3" fill="#c77dff"
+                        style="filter: drop-shadow(0 0 4px rgba(199,125,255,0.6))" />
+                      <rect x="170" y="75" width="28" height="35" rx="3" fill="#c77dff"
+                        style="filter: drop-shadow(0 0 4px rgba(199,125,255,0.6))" />
+                      <rect x="220" y="35" width="28" height="75" rx="3" fill="#c77dff"
+                        style="filter: drop-shadow(0 0 4px rgba(199,125,255,0.6))" />
+                    </g>
+                    <text x="260" y="20" fill="#00e5c8" font-family="Orbitron" font-size="14" font-weight="bold">100
+                      kWh</text>
+                  </svg>
+                </div>
+                <div class="chart-days">
+                  <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-title">System Performance 系統效能</div>
+                <div class="metrics-grid">
+                  <div class="metric-row">
+                    <span class="metric-label">運行時間 Uptime</span>
+                    <span class="metric-val">99.8%</span>
+                  </div>
+                  <div class="progress-bar">
+                    <div class="progress-fill" style="width:99.8%"></div>
+                  </div>
+
+                  <div class="metric-row" style="margin-top:8px">
+                    <span class="metric-label">平均輸出 Avg Output</span>
+                    <span class="metric-val">36 kWh</span>
+                  </div>
+                  <div class="progress-bar">
+                    <div class="progress-fill"
+                      style="width:36%; background:linear-gradient(90deg, var(--accent-purple), var(--accent-on))">
+                    </div>
+                  </div>
+
+                  <div class="metric-row" style="margin-top:8px">
+                    <span class="metric-label">最後更新 Last Update</span>
+                    <span class="metric-val" style="font-size:12px">Just Now!</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 裝置管理 -->
+        <section class="page-section" id="page-devices">
+          <div class="page-header">
+            <h1 class="page-title">Device Management 裝置管理</h1>
+            <div style="display:flex; gap:10px">
+              <button class="toolbar-btn primary" onclick="addDevice()">+ 新增裝置</button>
+              <button class="toolbar-btn" onclick="exportDevices()">⤓ 匯出</button>
+              <button class="toolbar-btn" onclick="refreshDevices()">⟳ 重新整理</button>
+            </div>
+          </div>
+          <div class="panel">
+            <table class="device-table">
+              <thead>
+                <tr>
+                  <th>裝置 ID</th>
+                  <th>座標位置</th>
+                  <th>狀態</th>
+                  <th>電壓 (V)</th>
+                  <th>溫度 (°C)</th>
+                  <th>訊號</th>
+                  <th>發電量 (kWh)</th>
+                  <th>最後回報</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="deviceTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- 儲存監控 -->
+        <section class="page-section" id="page-storage">
+          <div class="page-header">
+            <h1 class="page-title">Storage Monitor 儲存監控</h1>
+          </div>
+          <div style="display:grid; grid-template-columns: repeat(3,1fr); gap:20px">
+            <div class="panel">
+              <div class="panel-title">電池陣列 Battery Array</div>
+              <div class="stat-card"><span class="stat-label">總容量</span><span class="stat-value">500 kWh</span></div>
+              <div class="stat-card"><span class="stat-label">目前儲存</span><span class="stat-value">342 kWh</span></div>
+              <div class="stat-card"><span class="stat-label">充電狀態</span><span class="stat-value"
+                  style="color:var(--accent-warning)">充電中</span></div>
+              <div class="progress-bar" style="margin-top:12px">
+                <div class="progress-fill" style="width:68.4%"></div>
+              </div>
+              <div style="font-size:10px; color:var(--text-muted); margin-top:6px">68.4%</div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">水庫蒸發抑制 Reservoir</div>
+              <div class="stat-card"><span class="stat-label">覆蓋率</span><span class="stat-value">42%</span></div>
+              <div class="stat-card"><span class="stat-label">節水量 (日)</span><span class="stat-value">12,480 L</span>
+              </div>
+              <div class="stat-card"><span class="stat-label">水面溫度</span><span class="stat-value">26.3 °C</span></div>
+              <div class="progress-bar" style="margin-top:12px">
+                <div class="progress-fill"
+                  style="width:42%; background:linear-gradient(90deg, var(--accent-on), #4dabf7)"></div>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">降溫效益 Cooling</div>
+              <div class="stat-card"><span class="stat-label">面板均溫</span><span class="stat-value">38.2 °C</span></div>
+              <div class="stat-card"><span class="stat-label">對比空氣溫</span><span class="stat-value"
+                  style="color:var(--accent-on)">−6.8 °C</span></div>
+              <div class="stat-card"><span class="stat-label">效率提升</span><span class="stat-value"
+                  style="color:var(--accent-on)">+11.3%</span></div>
+              <div class="progress-bar" style="margin-top:12px">
+                <div class="progress-fill"
+                  style="width:11.3%; background:linear-gradient(90deg, #4dabf7, var(--accent-purple))"></div>
+              </div>
+            </div>
+          </div>
+          <div class="panel" style="margin-top:20px">
+            <div class="panel-title">儲能趨勢圖 (近 7 日)</div>
+            <div class="chart-container" style="height:220px">
+              <svg class="line-chart-svg" viewBox="0 0 800 200" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="battGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#c77dff" stop-opacity="0.3" />
+                    <stop offset="100%" stop-color="#c77dff" stop-opacity="0" />
+                  </linearGradient>
+                </defs>
+                <g stroke="rgba(0,229,200,0.1)" stroke-width="1">
+                  <line x1="0" y1="40" x2="800" y2="40" />
+                  <line x1="0" y1="80" x2="800" y2="80" />
+                  <line x1="0" y1="120" x2="800" y2="120" />
+                  <line x1="0" y1="160" x2="800" y2="160" />
+                </g>
+                <polyline fill="url(#battGrad)" stroke="none"
+                  points="0,120 114,100 228,70 342,85 456,50 570,60 684,30 800,40 800,200 0,200" />
+                <polyline fill="none" stroke="#c77dff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                  points="0,120 114,100 228,70 342,85 456,50 570,60 684,30 800,40"
+                  style="filter: drop-shadow(0 0 6px rgba(199,125,255,0.7))" />
+                <polyline fill="none" stroke="#00e5c8" stroke-width="2" stroke-linecap="round" stroke-dasharray="6,4"
+                  points="0,140 114,125 228,110 342,120 456,90 570,95 684,70 800,80"
+                  style="filter: drop-shadow(0 0 4px rgba(0,229,200,0.5))" />
+              </svg>
+            </div>
+            <div class="legend">
+              <div class="legend-item"><span class="legend-dot" style="background:var(--accent-purple)"></span>電池儲存量
+                (kWh)</div>
+              <div class="legend-item"><span class="legend-dot" style="background:var(--accent-on)"></span>實際發電量 (kWh)
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 發電日誌 -->
+        <section class="page-section" id="page-power">
+          <div class="page-header">
+            <h1 class="page-title">Power Generation Log 發電日誌</h1>
+          </div>
+          <div style="display:grid; grid-template-columns: repeat(4,1fr); gap:20px; margin-bottom:20px">
+            <div class="panel">
+              <div class="panel-title">今日發電</div>
+              <div style="text-align:center">
+                <div
+                  style="font-family:var(--font-tech); font-size:32px; color:var(--accent-on); text-shadow:0 0 15px var(--border-glow)">
+                  84.6</div>
+                <div style="font-size:12px; color:var(--text-muted); margin-top:4px">kWh</div>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">本週累計</div>
+              <div style="text-align:center">
+                <div
+                  style="font-family:var(--font-tech); font-size:32px; color:var(--accent-purple); text-shadow:0 0 15px rgba(199,125,255,0.6)">
+                  523.8</div>
+                <div style="font-size:12px; color:var(--text-muted); margin-top:4px">kWh</div>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">本月累計</div>
+              <div style="text-align:center">
+                <div
+                  style="font-family:var(--font-tech); font-size:32px; color:var(--accent-warning); text-shadow:0 0 15px rgba(255,200,87,0.6)">
+                  2,184.5</div>
+                <div style="font-size:12px; color:var(--text-muted); margin-top:4px">kWh</div>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">減碳量</div>
+              <div style="text-align:center">
+                <div
+                  style="font-family:var(--font-tech); font-size:32px; color:var(--accent-on); text-shadow:0 0 15px var(--border-glow)">
+                  1.53</div>
+                <div style="font-size:12px; color:var(--text-muted); margin-top:4px">噸 CO₂</div>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <table class="device-table">
+              <thead>
+                <tr>
+                  <th>時間</th>
+                  <th>裝置</th>
+                  <th>發電量 (kWh)</th>
+                  <th>輸出電壓 (V)</th>
+                  <th>輸出電流 (A)</th>
+                  <th>效率</th>
+                  <th>狀態</th>
+                </tr>
+              </thead>
+              <tbody id="powerLogBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- 警報日誌 -->
+        <section class="page-section" id="page-alerts">
+          <div class="page-header">
+            <h1 class="page-title">Alert Log 警報日誌</h1>
+          </div>
+          <div style="display:grid; grid-template-columns: repeat(3,1fr); gap:20px; margin-bottom:20px">
+            <div class="panel" style="border-left:4px solid var(--accent-on); cursor:pointer"
+              onclick="filterAlerts('info'); showToast('已篩選 INFO 等級通知')">
+              <div class="panel-title">INFO 一般通知 <span class="expand-icon">🔍</span></div>
+              <div
+                style="font-family:var(--font-tech); font-size:36px; color:var(--accent-on); text-align:center; padding:10px 0">
+                24</div>
+            </div>
+            <div class="panel" style="border-left:4px solid var(--accent-warning); cursor:pointer"
+              onclick="filterAlerts('warning'); showToast('已篩選 WARNING 等級通知')">
+              <div class="panel-title">WARNING 警告 <span class="expand-icon">🔍</span></div>
+              <div
+                style="font-family:var(--font-tech); font-size:36px; color:var(--accent-warning); text-align:center; padding:10px 0">
+                3</div>
+            </div>
+            <div class="panel" style="border-left:4px solid var(--accent-off); cursor:pointer"
+              onclick="filterAlerts('danger'); showToast('已篩選 DANGER 等級通知')">
+              <div class="panel-title">DANGER 危險 <span class="expand-icon">🔍</span></div>
+              <div
+                style="font-family:var(--font-tech); font-size:36px; color:var(--accent-off); text-align:center; padding:10px 0">
+                1</div>
+            </div>
+          </div>
+          <div class="panel">
+            <div
+              style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; padding-bottom:8px; border-bottom:1px solid rgba(0,229,200,0.2)">
+              <div class="panel-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0">警報清單 (點擊確認 / 雙擊過濾)
+              </div>
+              <div style="display:flex; gap:6px">
+                <button class="toolbar-btn" onclick="filterAlerts('all'); showToast('已顯示全部警報')">⌂ 全部顯示</button>
+                <button class="toolbar-btn" onclick="ackAllAlerts()">✓ 全部確認</button>
+              </div>
+            </div>
+            <div class="alert-item danger" onclick="ackAlert(this, 'DANGER 面板過熱')" style="cursor:pointer">
+              <div class="alert-header"><span class="alert-type">● DANGER 面板過熱</span><span class="alert-time">2026-08-15
+                  14:32:05</span></div>
+              <div class="alert-msg">模組 ID-05 面板溫度達到 62.5°C，已超過安全臨界值 (60°C)，請立即檢視散熱狀態。</div>
+              <div class="alert-device">Device: HEX-05 | Location: (q:2, r:1) | ESP32 MAC: 24:6F:28:AA:BB:05</div>
+            </div>
+            <div class="alert-item warning" onclick="ackAlert(this, 'WARNING 訊號強度下降')" style="cursor:pointer">
+              <div class="alert-header"><span class="alert-type">● WARNING 訊號強度下降</span><span
+                  class="alert-time">2026-08-15 13:45:12</span></div>
+              <div class="alert-msg">模組 ID-07 與中繼節點 Base-001 之 ESP-NOW 訊號強度下降至 -68 dBm。</div>
+              <div class="alert-device">Device: HEX-07 | RSSI: -68 dBm</div>
+            </div>
+            <div class="alert-item warning" onclick="ackAlert(this, 'WARNING 電壓波動')" style="cursor:pointer">
+              <div class="alert-header"><span class="alert-type">● WARNING 電壓波動</span><span
+                  class="alert-time">2026-08-15 11:20:44</span></div>
+              <div class="alert-msg">Buck 電路輸出電壓波動幅度 +8.3%，已進行主動調節。</div>
+              <div class="alert-device">Device: HEX-03 | Voltage: 12.99 V → 12.01 V</div>
+            </div>
+            <div class="alert-item" onclick="ackAlert(this, 'INFO 歐亞路徑完成')" style="cursor:pointer">
+              <div class="alert-header"><span class="alert-type">● INFO 歐亞路徑完成</span><span class="alert-time">2026-08-15
+                  10:00:00</span></div>
+              <div class="alert-msg">七橋問題連線驗證成功，模組連接形成閉合歐亞環路，後續巡檢與維護效率已最佳化。</div>
+              <div class="alert-device">System: Path Verification | Nodes: 8 | Edges: 12</div>
+            </div>
+            <div class="alert-item" onclick="ackAlert(this, 'INFO 系統開機')" style="cursor:pointer">
+              <div class="alert-header"><span class="alert-type">● INFO 系統開機</span><span class="alert-time">2026-08-15
+                  06:00:00</span></div>
+              <div class="alert-msg">水面智慧浮動太陽能發電系統已成功啟動，ESP-NOW 網狀網路初始化完成。</div>
+              <div class="alert-device">System: Generation System v2.4.1</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 系統設定 -->
+        <section class="page-section" id="page-settings">
+          <div class="page-header">
+            <h1 class="page-title">System Settings 系統設定</h1>
+          </div>
+          <div style="display:grid; grid-template-columns: repeat(2,1fr); gap:24px">
+            <div class="panel">
+              <div class="panel-title">基本設定 Basic</div>
+              <div class="settings-group">
+                <label class="settings-label">系統名稱</label>
+                <input class="settings-input" id="cfgSystemName" data-localized-default value="水面智慧浮動太陽能發電系統 - Macau Reservoir Unit 1">
+              </div>
+              <div class="settings-group">
+                <label class="settings-label">管理員 Email</label>
+                <input class="settings-input" id="cfgAdminEmail" value="admin@hexagon-solar.mo">
+              </div>
+              <div class="settings-group">
+                <label class="settings-label">時區</label>
+                <input class="settings-input" id="cfgTimezone" data-localized-default value="UTC+08:00 Macau Standard Time">
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">通訊設定 ESP-NOW & Hardware</div>
+              <div class="settings-group">
+                <label class="settings-label">通訊協定</label>
+                <input class="settings-input" id="cfgProtocol" value="ESP-NOW 2.0 (IEEE 802.11 LR)">
+              </div>
+              <div class="settings-group">
+                <label class="settings-label">中繼 Base MAC 位址</label>
+                <input class="settings-input" id="cfgBaseMac" value="24:6F:28:AA:BB:00">
+              </div>
+              <div class="settings-group">
+                <label class="settings-label">Web Serial 傳輸率 (Baud Rate)</label>
+                <select class="settings-input" id="cfgBaudRate">
+                  <option value="115200" selected>115200 baud (ESP32 標準)</option>
+                  <option value="921600">921600 baud (高速)</option>
+                  <option value="57600">57600 baud</option>
+                  <option value="9600">9600 baud</option>
+                </select>
+              </div>
+              <div class="settings-group">
+                <label class="settings-label">WebSocket 網關位址 (Wi-Fi 模式)</label>
+                <input class="settings-input" id="cfgWsUrl" value="ws://192.168.4.1:81">
+              </div>
+              <div style="display:flex; gap:8px; margin-top:12px">
+                <button class="toolbar-btn primary" style="flex:1; justify-content:center"
+                  onclick="handleConnectSerial()">🔌 連線 USB Serial</button>
+                <button class="toolbar-btn" style="flex:1; justify-content:center" onclick="openFirmwareModal()">📥 查看
+                  ESP32 韌體</button>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">硬體設定 Buck Circuit</div>
+              <div class="settings-row">
+                <span style="font-size:13px; color:var(--text-secondary)">輸出電壓 (12V)</span>
+                <div class="toggle-switch active" onclick="toggleSwitch(this, '硬體 12V 輸出')"></div>
+              </div>
+              <div class="settings-row">
+                <span style="font-size:13px; color:var(--text-secondary)">過壓保護 (OVP)</span>
+                <div class="toggle-switch active" onclick="toggleSwitch(this, '過壓保護 OVP')"></div>
+              </div>
+              <div class="settings-row">
+                <span style="font-size:13px; color:var(--text-secondary)">過溫保護 (OTP)</span>
+                <div class="toggle-switch active" onclick="toggleSwitch(this, '過溫保護 OTP')"></div>
+              </div>
+              <div class="settings-row">
+                <span style="font-size:13px; color:var(--text-secondary)">最大功率點追蹤 MPPT</span>
+                <div class="toggle-switch active" onclick="toggleSwitch(this, 'MPPT 最大功率追蹤')"></div>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">通知設定 Notification</div>
+              <div class="settings-row">
+                <span style="font-size:13px; color:var(--text-secondary)">Email 通知</span>
+                <div style="display:flex; gap:8px; align-items:center">
+                  <button class="toolbar-btn" style="font-size:11px; padding:6px 10px"
+                    onclick="openEmailNotificationModal()">✉ 預覽 Email</button>
+                  <div class="toggle-switch active" id="toggleEmailNotifications" data-setting-toggle="emailNotifications" onclick="toggleSwitch(this, 'Email 通知')"></div>
+                </div>
+              </div>
+              <div class="settings-row">
+                <span style="font-size:13px; color:var(--text-secondary)">即時推播 (Web Push)</span>
+                <div class="toggle-switch active" id="toggleWebPush" data-setting-toggle="webPush" onclick="toggleSwitch(this, 'Web Push 即時推播')"></div>
+              </div>
+              <div class="settings-row">
+                <span style="font-size:13px; color:var(--text-secondary)">每日摘要報告</span>
+                <div style="display:flex; gap:8px; align-items:center">
+                  <button class="toolbar-btn" style="font-size:11px; padding:6px 10px"
+                    onclick="openDailySummaryReport()">📄 預覽報告</button>
+                  <div class="toggle-switch active" id="toggleDailySummary" data-setting-toggle="dailySummary" onclick="toggleSwitch(this, '每日摘要報告')"></div>
+                </div>
+              </div>
+              <div class="settings-row">
+                <span style="font-size:13px; color:var(--text-secondary)">七橋連線驗證 (每日)</span>
+                <div class="toggle-switch active" id="toggleDailyVerification" data-setting-toggle="dailyVerification" onclick="toggleSwitch(this, '每日七橋連線驗證')"></div>
+              </div>
+            </div>
+            <div class="panel" style="grid-column: span 2">
+              <div class="panel-title">使用者與身分權限管理 User Accounts & RBAC</div>
+              <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:14px; margin-bottom:14px">
+                <div class="rbac-account-card" id="rbacCard-admin">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
+                    <span style="font-weight:bold; color:var(--accent-on); font-family:var(--font-tech)">admin</span>
+                    <span class="role-badge admin">ADMIN</span>
+                  </div>
+                  <div style="font-size:12px; color:var(--text-secondary); margin-bottom:6px">System Administrator</div>
+                  <div style="font-size:11px; color:var(--text-muted); margin-bottom:10px">權限：所有系統功能、控制、通訊與設定</div>
+                  <button class="toolbar-btn primary" id="rbacBtn-admin"
+                    style="width:100%; justify-content:center; font-size:11px" onclick="quickFillAndSwitch('admin')">🔄
+                    切換至此帳號</button>
+                </div>
+                <div class="rbac-account-card" id="rbacCard-operator">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
+                    <span
+                      style="font-weight:bold; color:var(--accent-purple); font-family:var(--font-tech)">operator</span>
+                    <span class="role-badge engineer">OPERATOR</span>
+                  </div>
+                  <div style="font-size:12px; color:var(--text-secondary); margin-bottom:6px">Field Maintenance Engineer
+                  </div>
+                  <div style="font-size:11px; color:var(--text-muted); margin-bottom:10px">權限：硬體開關、裝置新增、連線路徑</div>
+                  <button class="toolbar-btn" id="rbacBtn-operator"
+                    style="width:100%; justify-content:center; font-size:11px"
+                    onclick="quickFillAndSwitch('operator')">🔄 切換至此帳號</button>
+                </div>
+                <div class="rbac-account-card" id="rbacCard-guest">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px">
+                    <span style="font-weight:bold; color:var(--text-muted); font-family:var(--font-tech)">guest</span>
+                    <span class="role-badge guest">GUEST</span>
+                  </div>
+                  <div style="font-size:12px; color:var(--text-secondary); margin-bottom:6px">Public Viewer (Read-Only)
+                  </div>
+                  <div style="font-size:11px; color:var(--text-muted); margin-bottom:10px">權限：即時數據與發電日誌檢視</div>
+                  <button class="toolbar-btn" id="rbacBtn-guest"
+                    style="width:100%; justify-content:center; font-size:11px" onclick="quickFillAndSwitch('guest')">🔄
+                    切換至此帳號</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="text-align:right; margin-top:24px">
+            <button class="btn-save" onclick="handleSaveSettings()">SAVE 儲存變更</button>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- 全域登入鎖定覆蓋層 (Login / Lock Screen Overlay) -->
+  <div class="login-overlay hidden" id="loginOverlay">
+    <div class="login-card" id="loginCard">
+      <div class="login-language">
+        <label class="language-switch">
+          <span data-language-label>語言</span>
+          <select data-language-select aria-label="Language">
+            <option value="zh-TW" lang="zh-TW">繁體中文</option>
+            <option value="en" lang="en">English</option>
+          </select>
+        </label>
+      </div>
+      <div class="login-brand-wrapper">
+        <div class="login-brand-icon"></div>
+        <h2 class="login-title" id="loginCardTitle">HEXAGON SOLAR</h2>
+        <p class="login-subtitle" id="loginCardSubtitle">水面智慧浮動太陽能發電系統 • 操作控制台</p>
+      </div>
+
+      <div class="login-error" id="loginErrorMsg">
+        <span>⚠</span>
+        <span id="loginErrorText">帳號或密碼錯誤，請重新輸入。</span>
+      </div>
+
+      <form id="loginForm" onsubmit="event.preventDefault(); handleLoginSubmit();">
+        <div class="login-input-group">
+          <label class="login-label" for="loginUsername">使用者帳號 / Username</label>
+          <div class="login-input-box">
+            <span class="input-icon">👤</span>
+            <input type="text" id="loginUsername" class="login-input" placeholder="請輸入使用者帳號" required
+              autocomplete="username">
+          </div>
+        </div>
+
+        <div class="login-input-group">
+          <label class="login-label" for="loginPassword">密碼 / Password</label>
+          <div class="login-input-box">
+            <span class="input-icon">🔒</span>
+            <input type="password" id="loginPassword" class="login-input" placeholder="請輸入密碼" required
+              autocomplete="current-password">
+            <button type="button" class="pwd-toggle-btn" onclick="togglePasswordVisibility('loginPassword', this)"
+              title="顯示/隱藏密碼">👁</button>
+          </div>
+        </div>
+
+        <div class="login-options">
+          <label class="login-remember">
+            <input type="checkbox" id="rememberLogin" checked>
+            <span>保持登入狀態 (30 天)</span>
+          </label>
+        </div>
+
+        <button type="submit" class="btn-login" id="loginSubmitBtn">
+          <span>⎆</span>
+          <span>VERIFY & LOGIN 驗證登入</span>
+        </button>
+      </form>
+
+      <div
+        style="margin-top:20px; text-align:center; font-size:10px; color:var(--text-muted); font-family:var(--font-tech)">
+        ESP-NOW 2.0 ENCRYPTED SESSION • MACAU RESERVOIR UNIT 1
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <div class="modal-bg" id="modalRoot" onclick="if(event.target===this)closeModal()">
+    <div class="modal-box" id="modalBox">
+      <div class="modal-language">
+        <label class="language-switch">
+          <span data-language-label>語言</span>
+          <select data-language-select aria-label="Language">
+            <option value="zh-TW" lang="zh-TW">繁體中文</option>
+            <option value="en" lang="en">English</option>
+          </select>
+        </label>
+      </div>
+      <div class="modal-title" id="modalTitle">提示</div>
+      <div id="modalBody"></div>
+      <div class="modal-footer" id="modalFooter"></div>
+    </div>
+  </div>
+
+  <script src="assets/js/management-console.js"></script>
+  <script src="assets/js/management-console-i18n.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,51 @@
+name: Daily summary email
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 08:00 Hong Kong time. GitHub Actions cron uses UTC.
+    - cron: "0 0 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  send-daily-summary:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build daily summary report
+        id: summary
+        run: node scripts/build-daily-summary.mjs
+        env:
+          REPORT_TIMEZONE: Asia/Hong_Kong
+          REPORT_LANGUAGE: zh-TW
+          SYSTEM_NAME: 水面智慧浮動太陽能發電系統
+          DASHBOARD_URL: ${{ vars.DASHBOARD_URL }}
+
+      - name: Read email subject
+        id: email
+        run: echo "subject=$(cat tmp/daily-email-subject.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Send report email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_HOST }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          subject: ${{ steps.email.outputs.subject }}
+          body: file://tmp/daily-email-body.txt
+          to: ${{ secrets.EMAIL_TO }}
+          from: ${{ secrets.EMAIL_FROM }}
+
+      - name: Archive report
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reports/*.txt
+          git diff --cached --quiet || git commit -m "Add daily summary report"
+          git push
