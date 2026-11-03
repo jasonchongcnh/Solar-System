@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1c242e">
+  <title>LaTeX Studio</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/editor.css">
+  <script src="/editor.js" defer></script>
+  <script src="/editor-extras.js" defer></script>
+  <script src="/editor-projects.js" defer></script>
+</head>
+<body>
+  <div class="studio">
+    <header class="app-header">
+      <a class="brand" href="/" aria-label="LaTeX Studio home" title="LaTeX Studio"><span class="brand-mark" aria-hidden="true">L<span>ᴛ</span></span></a>
+      <nav class="menu-bar" id="menu-bar" aria-label="Editor menu">
+        <details class="menu" data-menu="file"><summary>File</summary><div class="menu-dropdown"><button type="button" data-project-action="new">New document</button><button type="button" data-project-action="open">Open local folder…</button><button type="button" data-project-action="import">Import files or folder…</button><button type="button" data-project-action="projects">Recent documents…</button><hr><button type="button" data-action="save">Save <kbd>Ctrl S</kbd></button><button type="button" data-action="compile">Recompile <kbd>Ctrl ↵</kbd></button><hr><button type="button" data-action="download-source">Download source</button><button type="button" data-action="download-pdf">Download PDF</button><hr><button type="button" data-action="reload">Reload from disk</button></div></details>
+        <details class="menu" data-menu="edit"><summary>Edit</summary><div class="menu-dropdown"><button type="button" data-editor-action="undo">Undo <kbd>Ctrl Z</kbd></button><button type="button" data-editor-action="redo">Redo <kbd>Ctrl Y</kbd></button><hr><button type="button" data-action="find">Find <kbd>Ctrl F</kbd></button><button type="button" data-editor-action="comment">Toggle comment</button></div></details>
+        <details class="menu" data-menu="insert"><summary>Insert</summary><div class="menu-dropdown"><button type="button" data-editor-action="section">Section</button><button type="button" data-editor-action="itemize">Bulleted list</button><button type="button" data-editor-action="bold">Bold text</button><button type="button" data-editor-action="italic">Italic text</button></div></details>
+        <details class="menu" data-menu="view"><summary>View</summary><div class="menu-dropdown"><button type="button" data-action="sidebar">File tree</button><button type="button" data-action="outline">File outline</button><button type="button" data-action="wrap">Line wrapping</button><button type="button" data-action="layout">Change layout</button></div></details>
+        <details class="menu" data-menu="format"><summary>Format</summary><div class="menu-dropdown"><button type="button" data-editor-action="bold">Bold</button><button type="button" data-editor-action="italic">Italic</button><button type="button" data-editor-action="section">Section heading</button><button type="button" data-editor-action="itemize">Bulleted list</button></div></details>
+        <details class="menu" data-menu="help"><summary>Help</summary><div class="menu-dropdown"><button type="button" data-action="help">Keyboard shortcuts</button></div></details>
+      </nav>
+      <button class="project-name" id="project-switcher" type="button" title="Open or switch documents" aria-haspopup="dialog" aria-controls="project-dialog"><span id="project-name">Loading document</span><span class="project-chevron" aria-hidden="true">⌄</span></button>
+      <div class="header-actions">
+        <span class="connection-status" id="connection-status" hidden>Reconnecting…</span>
+        <button class="button quiet" id="save-button" type="button" title="Save source (Ctrl+S)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h12l4 4v14H3V3h2Zm2 0v6h10V3M7 21v-8h10v8"/></svg><span>Save</span></button>
+        <button class="button quiet" id="layout-button" type="button" title="Change editor layout"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v16H3V4Zm6 0v16M3 9h6"/></svg><span>Layout</span><span class="button-chevron" aria-hidden="true">⌄</span></button>
+      </div>
+    </header>
+
+    <div class="notice" id="notice" role="status" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 10 18H2L12 3Zm0 6v5m0 3v1"/></svg><span id="notice-message"></span><button class="button notice-button" id="reload-button" type="button" hidden>Reload document</button><button class="notice-dismiss" id="notice-dismiss" type="button" aria-label="Dismiss message">×</button></div>
+
+    <nav class="mobile-tabs" aria-label="Workspace view"><button class="mobile-tab active" id="source-tab" type="button" aria-selected="true" aria-controls="source-panel">Code</button><button class="mobile-tab" id="preview-tab" type="button" aria-selected="false" aria-controls="preview-panel">PDF</button><button class="mobile-compile" type="button" data-action="compile">Recompile</button></nav>
+
+    <div class="workbench">
+      <nav class="activity-rail" aria-label="Project tools">
+        <button class="rail-button active" id="sidebar-toggle" type="button" aria-label="Toggle file tree" aria-controls="project-sidebar" aria-expanded="true" title="File tree"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H5v18h14V8l-5-5Zm0 0v5h5M8 12h8M8 16h6"/></svg></button>
+        <button class="rail-button" type="button" data-action="find" aria-label="Find in source" title="Find (Ctrl+F)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg></button>
+        <button class="rail-button" id="outline-toggle" type="button" aria-label="Toggle file outline" aria-controls="outline-section" aria-expanded="true" title="File outline"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h12M9 12h12M9 19h12M3 5h1M3 12h1M3 19h1"/></svg></button>
+        <div class="rail-spacer"></div>
+        <button class="rail-button" type="button" data-action="help" aria-label="Keyboard shortcuts" title="Keyboard shortcuts"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9a3 3 0 0 1 6 0c0 2-3 2-3 4m0 3v.1"/></svg></button>
+      </nav>
+
+      <aside class="project-sidebar" id="project-sidebar" aria-label="Project files and outline">
+        <section class="file-tree-section" aria-label="File tree">
+          <div class="sidebar-heading"><span class="sidebar-chevron" aria-hidden="true">⌄</span><h2>File tree</h2><button class="icon-button sidebar-refresh" type="button" data-action="refresh-files" title="Refresh project files" aria-label="Refresh project files"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 14 6M4 12a8 8 0 0 0 14 6"/></svg></button></div>
+          <div class="file-tree" id="file-tree"><button class="file-tree-item active" type="button" aria-current="true"><svg class="file-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H5v18h14V8l-5-5Zm0 0v5h5M8 12h8M8 16h6"/></svg><span class="file-label">main-en.tex</span></button></div>
+        </section>
+        <section class="outline-section" id="outline-section" aria-label="File outline"><div class="sidebar-heading"><span class="sidebar-chevron" aria-hidden="true">⌄</span><h2>File outline</h2></div><nav class="document-outline" id="document-outline" aria-label="Document sections"><p class="sidebar-empty">Loading document outline…</p></nav></section>
+      </aside>
+
+      <main class="workspace" id="workspace">
+        <section class="source-panel panel" id="source-panel" aria-label="LaTeX source editor">
+          <div class="source-tab-bar"><div class="source-file-tab"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H5v18h14V8l-5-5Zm0 0v5h5M8 12h8M8 16h6"/></svg><span id="source-file">main-en.tex</span><span class="modified-dot" id="modified-dot" title="Unsaved changes" hidden></span></div><h1 id="file-title" class="sr-only">main-en.tex</h1></div>
+          <div class="panel-toolbar source-toolbar">
+            <div class="formatting-tools" aria-label="Source formatting">
+              <button class="icon-button" type="button" data-editor-action="undo" title="Undo" aria-label="Undo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5-5 5 5 5M3 10h10a6 6 0 0 1 0 12"/></svg></button>
+              <button class="icon-button" type="button" data-editor-action="redo" title="Redo" aria-label="Redo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 5 5 5-5 5m5-5H11a6 6 0 0 0 0 12"/></svg></button>
+              <span class="tool-divider" aria-hidden="true"></span>
+              <button class="icon-button text-tool bold-tool" type="button" data-editor-action="bold" title="Bold text" aria-label="Insert bold text">B</button>
+              <button class="icon-button text-tool italic-tool" type="button" data-editor-action="italic" title="Italic text" aria-label="Insert italic text">I</button>
+              <button class="icon-button" type="button" data-editor-action="section" title="Insert a section" aria-label="Insert a section"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v16M16 4v16M5 12h11M20 7v10"/></svg></button>
+              <button class="icon-button" type="button" data-editor-action="itemize" title="Insert a bulleted list" aria-label="Insert a bulleted list"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h12M9 12h12M9 19h12M3 5h1M3 12h1M3 19h1"/></svg></button>
+              <button class="icon-button" type="button" data-editor-action="comment" title="Toggle comment" aria-label="Toggle comment"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H9l-5 4V4Zm4 5h8M8 12h5"/></svg></button>
+            </div>
+            <div class="source-tools"><span class="code-mode">Code</span><span class="editing-mode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 3 6 6L8 22H2v-6L15 3Zm-3 3 6 6"/></svg>Editing</span><button class="icon-button" id="wrap-button" type="button" aria-label="Enable line wrapping" aria-pressed="false" title="Toggle line wrapping"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18M3 10h14a4 4 0 0 1 0 8h-4m3-3-3 3 3 3M3 15h4M3 20h4"/></svg></button><button class="icon-button" id="find-button" type="button" aria-label="Find in source" title="Find in source (Ctrl+F)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg></button></div>
+          </div>
+          <div class="find-bar" id="find-bar" hidden><label class="sr-only" for="find-input">Find text</label><input id="find-input" type="search" placeholder="Find in source…" autocomplete="off"><span id="find-count" aria-live="polite"></span><button class="icon-button" id="find-next" type="button" aria-label="Find next" title="Find next (Enter)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16m-6-6 6 6 6-6"/></svg></button><button class="icon-button" id="find-close" type="button" aria-label="Close find"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+          <div class="editor-container" id="editor-container"><div class="line-gutter" aria-hidden="true"><pre id="line-numbers">1</pre></div><div class="editor-surface"><pre id="source-highlight" aria-hidden="true"><code id="source-highlight-content"></code></pre><label class="sr-only" for="source-editor">LaTeX source</label><textarea id="source-editor" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" placeholder="Loading your document…" aria-describedby="editor-help" disabled></textarea></div><span class="sr-only" id="editor-help">Edit LaTeX source. Control Enter compiles, Control S saves, and Control F finds text.</span></div>
+          <div class="editor-status"><span id="save-status" aria-live="polite"><span class="status-dot"></span>Loading…</span><div><span id="cursor-position">Ln 1, Col 1</span><span class="status-separator" aria-hidden="true">·</span><span>UTF-8</span><span class="status-separator" aria-hidden="true">·</span><span>LaTeX</span></div></div>
+        </section>
+
+        <div class="panel-resizer" id="panel-resizer" role="separator" aria-label="Resize source and preview panels" aria-orientation="vertical" aria-valuenow="52" aria-valuemin="25" aria-valuemax="75" tabindex="0"><span aria-hidden="true">‹</span></div>
+
+        <section class="preview-panel panel" id="preview-panel" aria-label="PDF preview">
+          <div class="panel-toolbar preview-toolbar"><div class="compile-actions"><button class="button compile-button" id="compile-button" type="button" title="Recompile document (Ctrl+Enter)"><span>Recompile</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><label class="auto-compile" title="Compile automatically after you finish typing"><input id="auto-compile" type="checkbox" checked><span>Auto</span></label><a class="icon-button download-link" id="download-link" href="/api/pdf?download=1" aria-disabled="true" title="Download PDF" aria-label="Download PDF"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg></a></div><span class="build-status" id="build-status" aria-live="polite"><span class="build-dot"></span><span id="build-label">Loading preview</span></span></div>
+          <div class="preview-container" id="preview-container"><div class="compile-progress" id="compile-progress" hidden></div><iframe id="pdf-preview" title="Compiled document PDF" hidden></iframe><div class="preview-empty" id="preview-empty"><div class="empty-document" aria-hidden="true"><svg viewBox="0 0 64 80"><path d="M12 2h27l13 13v61H12V2Z"/><path d="M39 2v14h13M21 31h23M21 40h23M21 49h17"/></svg></div><h2 id="preview-empty-title">Your document, in view</h2><p id="preview-empty-message">Compile your source to see a PDF preview here.</p><button class="button empty-compile" id="empty-compile" type="button">Compile document</button></div></div>
+          <div class="preview-footer"><span id="preview-updated">No preview yet</span><span class="preview-hint">Last successful compilation</span></div>
+        </section>
+      </main>
+    </div>
+
+    <section class="log-drawer" id="log-drawer" aria-label="Compilation output"><button class="log-toggle" id="log-toggle" type="button" aria-expanded="false" aria-controls="log-content"><span class="log-heading"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 7 5 5-5 5m8 0h6"/></svg><span>Compilation log</span><span class="log-badge" id="log-badge" hidden></span></span><span class="log-summary" id="log-summary">Ready when you are</span><svg class="log-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 14 5-5 5 5"/></svg></button><div class="log-content" id="log-content" hidden><div class="log-error-links" id="log-error-links"></div><pre id="compile-log">Compiler output will appear here.</pre></div></section>
+    <footer class="app-footer"><span><span class="local-dot" aria-hidden="true"></span>Local workspace</span><span class="footer-shortcuts"><kbd>Ctrl S</kbd> Save<span>·</span><kbd>Ctrl ↵</kbd> Recompile</span></footer>
+  </div>
+  <dialog class="asset-dialog" id="asset-dialog" aria-labelledby="asset-name"><header class="asset-header"><h2 id="asset-name">Project file</h2><button class="icon-button" id="asset-close" type="button" aria-label="Close file preview"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header><div class="asset-content" id="asset-content"></div></dialog>
+  <dialog class="project-dialog" id="project-dialog" aria-labelledby="project-dialog-title">
+    <header class="asset-header"><h2 id="project-dialog-title">Your documents</h2><button class="icon-button" id="project-dialog-close" type="button" aria-label="Close document chooser"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
+    <nav class="project-tabs" aria-label="Document actions"><button type="button" data-project-tab="recent" aria-pressed="true">Recent</button><button type="button" data-project-tab="new" aria-pressed="false">New</button><button type="button" data-project-tab="open" aria-pressed="false">Open folder</button><button type="button" data-project-tab="import" aria-pressed="false">Import</button></nav>
+    <p class="project-error" id="project-error" role="alert" hidden></p>
+    <div class="project-dialog-content">
+      <section data-project-panel="recent"><p class="project-note">Choose a document to continue editing. Your current edits are saved before switching.</p><div class="recent-projects" id="recent-projects"><p class="project-note">Loading documents…</p></div><button class="button" id="refresh-projects-button" type="button">Refresh list</button></section>
+      <section data-project-panel="new" hidden><form id="new-project-form"><label for="new-project-name">Document name</label><input id="new-project-name" type="text" placeholder="My document" maxlength="100" autocomplete="off" required><p class="project-note">Create a local document with a simple LaTeX template. It opens in the editor and compiles automatically.</p><button class="button project-primary" id="create-project-button" type="submit">Create document</button></form></section>
+      <section data-project-panel="open" hidden><form id="open-project-form"><label for="open-project-path">Folder on this computer</label><div class="project-path-row"><input id="open-project-path" type="text" placeholder="C:\Documents\My LaTeX project" autocomplete="off" required><button class="button" id="inspect-project-button" type="button">Find .tex files</button></div><p class="project-note">Enter the folder containing your source and images. Edits are saved directly to the selected source file in this folder.</p><div id="open-main-picker" hidden><label for="open-main-file">Main .tex file to compile</label><select id="open-main-file"></select><p class="project-note">Choose the file containing <code>\documentclass</code>. Other source files and images remain available to the compiler.</p><button class="button project-primary" id="open-project-button" type="submit">Open document</button></div><button class="button project-browse" id="browse-project-folder-button" type="button">Browse a folder and import a copy…</button></form></section>
+      <section data-project-panel="import" hidden><p class="project-note">Select your .tex files and images, or a whole folder. Imported files are copied into a new local workspace; edits are saved to that copy. Folder imports skip generated files, hidden folders, and unsupported files.</p><div class="project-import-actions"><button class="button" id="choose-import-files-button" type="button">Choose files…</button><button class="button" id="choose-import-folder-button" type="button">Choose folder…</button></div><input id="import-file-input" type="file" multiple hidden><input id="import-folder-input" type="file" webkitdirectory multiple hidden><p class="project-note" id="import-selection-status">No files selected. Up to 256 files, 48 MB total (64 MB encoded upload).</p><form id="import-project-form"><label for="import-project-name">Document name</label><input id="import-project-name" type="text" placeholder="Imported document" maxlength="100" autocomplete="off" required><label for="import-main-file">Main .tex file to compile</label><select id="import-main-file" required disabled><option value="">Select files first</option></select><button class="button project-primary" id="import-project-button" type="submit" disabled>Import and open</button></form></section>
+    </div>
+  </dialog>
+</body>
+</html>

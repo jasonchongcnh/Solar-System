@@ -1,0 +1,7 @@
+node_modules/
+.artifacts/
+tmp/
+reports/daily-summary-*.txt
+**/Secrets.h
+**/AccessPointSecrets.h
+**/.env

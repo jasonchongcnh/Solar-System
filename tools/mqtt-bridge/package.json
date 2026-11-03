@@ -1,0 +1,7 @@
+{
+  "name": "hexagon-mqtt-console-bridge",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node bridge.mjs", "test": "node --test bridge.test.mjs" },
+  "dependencies": { "mqtt": "^5.10.4", "ws": "^8.18.0" }
+}

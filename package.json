@@ -1,0 +1,22 @@
+{
+  "name": "solar-system-console",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --check assets/js/theme.js && node --check assets/js/management-console.js && node --check assets/js/management-console-i18n.js && node --check assets/js/console-workspace.js && node --check scripts/build-daily-summary.mjs && node scripts/build-daily-summary.mjs && node scripts/responsive-smoke.mjs && node scripts/hardware-protocol-smoke.mjs && node scripts/quality-audit.mjs",
+    "test:hardware": "node scripts/hardware-protocol-smoke.mjs",
+    "test:quality": "node scripts/quality-audit.mjs",
+    "test:locale": "node scripts/quality-audit.mjs --locale-only",
+    "build:icons": "node scripts/build-icons.mjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "esbuild": "^0.28.2",
+    "lucide": "^0.468.0",
+    "playwright": "^1.56.0"
+  },
+  "dependencies": {
+    "pdfjs-dist": "5.4.624"
+  }
+}

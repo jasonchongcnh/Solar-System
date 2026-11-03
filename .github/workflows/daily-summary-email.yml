@@ -11,11 +11,11 @@ permissions:
 
 jobs:
   send-daily-summary:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build daily summary report
         id: summary
@@ -31,7 +31,7 @@ jobs:
         run: echo "subject=$(cat tmp/daily-email-subject.txt)" >> "$GITHUB_OUTPUT"
 
       - name: Send report email
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@v21
         with:
           server_address: ${{ secrets.SMTP_HOST }}
           server_port: ${{ secrets.SMTP_PORT }}

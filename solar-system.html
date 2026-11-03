@@ -1,9 +1,11 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hexagonal honeycomb one-stroke problem</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Hexagon Solar | Array Lab</title>
+    <meta name="theme-color" content="#f5f6f7">
+    <script src="assets/js/theme.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -53,66 +55,68 @@
             border: 1px solid #ddd;
             background-color: white;
         }
+        * { box-sizing: border-box; }
+        body { padding: 20px max(16px, env(safe-area-inset-right)) 20px max(16px, env(safe-area-inset-left)); }
+        h1, .stats { overflow-wrap: anywhere; }
+        .controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
+        .controls > * { margin: 0; }
+        input { width: 80px; min-height: 44px; }
+        button { min-height: 44px; touch-action: manipulation; }
+        #hexagonGrid { width: 100%; max-width: 800px; }
+        canvas { display: block; width: 100%; height: auto; touch-action: manipulation; }
+        button:focus-visible, input:focus-visible { outline: 2px solid #176b3b; outline-offset: 3px; }
+        @media (max-width: 540px) {
+            h1 { font-size: 24px; }
+            .controls { display: grid; grid-template-columns: minmax(0, 1fr) 80px; }
+            label { text-align: left; padding: 0; }
+            button { grid-column: 1 / -1; }
+            .stats { text-align: left; }
+        }
     </style>
+    <link rel="stylesheet" href="assets/css/solar-array.css">
+    <link rel="stylesheet" href="assets/css/theme.css">
 </head>
 <body>
     <div class="container">
-        <h1>Hexagonal honeycomb one-stroke problem</h1>
+        <header class="lab-header"><span class="lab-brand">Hexagon Solar</span><div class="lab-actions"><label class="language-switch"><span data-language-label>Language</span><select data-language-select aria-label="Language"><option value="zh-TW" lang="zh-TW">繁體中文</option><option value="en" lang="en">English</option></select></label><button type="button" class="theme-toggle" data-theme-toggle title="Switch to dark mode" aria-label="Switch to dark mode"><span data-icon="moon" aria-hidden="true"></span></button><a href="management-console.html"><span data-icon="arrow-left"></span>Management Console</a></div></header>
+        <h1>Array Lab</h1>
         
         <div class="controls">
             <label for="hexagonCount">Number of hexagons:</label>
             <input type="number" id="hexagonCount" min="1" max="20" value="7">
-            <button id="generateBtn">Generate a honeycomb</button>
-            <button id="solveBtn">Find a stroke path</button>
-            <button id="clearBtn">Clear</button>
+            <button id="generateBtn"><span data-icon="grid-3x3"></span>Generate a honeycomb</button>
+            <button id="solveBtn"><span data-icon="route"></span>Find a stroke path</button>
+            <button id="clearBtn"><span data-icon="rotate-ccw"></span>Clear</button>
         </div>
         
         <div id="hexagonGrid">
-            <canvas id="canvas"></canvas>
+            <canvas id="canvas" width="800" height="600" role="img" aria-label="Honeycomb connection graph" tabindex="0"></canvas>
         </div>
         
-        <div class="stats">
+        <div class="stats" role="status" aria-live="polite">
             <p id="pathCount">Number of unique connection paths: 0</p>
             <p id="pathInfo">Path information: Not yet calculated</p>
         </div>
     </div>
 
+    <script src="assets/js/vendor/lucide.min.js"></script>
     <script>
+        lucide.createIcons({ nameAttr: 'data-icon', attrs: { 'aria-hidden': 'true', focusable: 'false' } });
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
+        const labText = value => window.consoleI18n?.translate(value) || value;
         let hexagons = [];
         let edges = [];
         let graph = {};
         let paths = [];
+        let displayedPath = null;
+        let focusedHexIndex = 0;
+        let sceneTransform = { scale: 1, x: 0, y: 0 };
         
         // 設置畫布大小
         function resizeCanvas() {
-            const container = document.getElementById('hexagonGrid');
-            const containerWidth = container.clientWidth || window.innerWidth * 0.8;
-            const aspectRatio = 3/4; // 保持4:3的比例
-            
-            // 設置最大寬度，避免畫布過大
-            const maxWidth = Math.min(containerWidth, window.innerWidth * 0.8);
-            const maxHeight = window.innerHeight * 0.6;
-            
-            // 計算等比例尺寸
-            let width = maxWidth;
-            let height = width * aspectRatio;
-            
-            // 確保高度不超過最大高度
-            if (height > maxHeight) {
-                height = maxHeight;
-                width = height / aspectRatio;
-            }
-            
-            // 設置畫布尺寸
-            canvas.width = width;
-            canvas.height = height;
-            
-            // 如果已經有六邊形，重新繪製
-            if (hexagons.length > 0) {
-                drawHexagonGrid();
-            }
+            // CSS scales the fixed coordinate space without clearing paths or device state.
+            canvas.style.aspectRatio = '4 / 3';
         }
         
         class Hexagon {
@@ -154,24 +158,26 @@
                     ctx.lineTo(this.vertices[i].x, this.vertices[i].y);
                 }
                 ctx.closePath();
-                ctx.strokeStyle = '#333';
-                ctx.lineWidth = 2;
+                const focused = document.activeElement === canvas && hexagons[focusedHexIndex]?.id === this.id;
+                const palette = getComputedStyle(document.documentElement);
+                ctx.strokeStyle = palette.getPropertyValue(focused ? '--accent-purple' : '--text-secondary').trim();
+                ctx.lineWidth = focused ? 3 : 2;
                 ctx.stroke();
                 
                 // 根據啟用狀態填充不同顏色
                 if (this.enabled) {
-                    ctx.fillStyle = 'rgba(144, 238, 144, 0.5)'; // 淺綠色表示啟用
+                    ctx.fillStyle = palette.getPropertyValue('--lab-module').trim();
                     ctx.fill();
                 } else {
-                    ctx.fillStyle = 'rgba(211, 211, 211, 0.3)'; // 淺灰色表示禁用
+                    ctx.fillStyle = palette.getPropertyValue('--lab-disabled').trim();
                     ctx.fill();
                 }
                 
-                ctx.fillStyle = '#666';
+                ctx.fillStyle = palette.getPropertyValue('--text-secondary').trim();
                 ctx.font = '12px Arial';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(`ID: ${this.id}`, this.centerX, this.centerY - this.size * 0.6);
+                ctx.fillText(labText(`ID: ${this.id}`), this.centerX, this.centerY - this.size * 0.6);
             }
             
             // 檢查點擊是否在六邊形內
@@ -224,6 +230,8 @@
         }
         
         function generateHexagonGrid(count) {
+            displayedPath = null;
+            focusedHexIndex = 0;
             hexagons = [];
             edges = [];
             graph = {};
@@ -448,7 +456,7 @@
             const enabledHexagons = hexagons.filter(hex => hex.enabled);
             
             if (enabledHexagons.length === 0) {
-                alert("Please enable at least one hexagon first!");
+                alert(labText("Please enable at least one hexagon first!"));
                 return null;
             }
             
@@ -560,8 +568,20 @@
         }
         
         function drawHexagonGrid() {
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (hexagons.length) {
+                const vertices = hexagons.flatMap(hex => hex.vertices);
+                const minX = Math.min(...vertices.map(v => v.x));
+                const maxX = Math.max(...vertices.map(v => v.x));
+                const minY = Math.min(...vertices.map(v => v.y));
+                const maxY = Math.max(...vertices.map(v => v.y));
+                const scale = Math.min((canvas.width - 80) / (maxX - minX), (canvas.height - 80) / (maxY - minY));
+                sceneTransform = { scale, x: (canvas.width - (minX + maxX) * scale) / 2, y: (canvas.height - (minY + maxY) * scale) / 2 };
+            }
+            ctx.setTransform(sceneTransform.scale, 0, 0, sceneTransform.scale, sceneTransform.x, sceneTransform.y);
             hexagons.forEach(hex => hex.draw());
+            if (displayedPath) drawEulerPath(displayedPath);
         }
         
         function drawEulerPath(path) {
@@ -571,7 +591,7 @@
                     ctx.font = '24px Arial';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    ctx.fillText('無法找到一筆畫路徑！', canvas.width / 2, canvas.height / 2);
+                    ctx.fillText(labText('無法找到一筆畫路徑！'), canvas.width / 2, canvas.height / 2);
                 }
                 return;
             }
@@ -671,8 +691,8 @@
         
         document.getElementById('generateBtn').addEventListener('click', function() {
             const count = parseInt(document.getElementById('hexagonCount').value);
-            if (count < 1 || count > 20) {
-                alert('Please enter number between 1 to 20!');
+            if (!Number.isInteger(count) || count < 1 || count > 20) {
+                alert(labText('Please enter number between 1 to 20!'));
                 return;
             }
             
@@ -685,25 +705,27 @@
         
         document.getElementById('solveBtn').addEventListener('click', function() {
             if (hexagons.length === 0) {
-                alert('Please generate honeycomb first!');
+                alert(labText('Please generate honeycomb first!'));
                 return;
             }
             
             const enabledHexagons = hexagons.filter(hex => hex.enabled);
             if (enabledHexagons.length === 0) {
-                alert('Please enable at least one hexagon by clicking on it!');
+                alert(labText('Please enable at least one hexagon by clicking on it!'));
                 return;
             }
             
             const path = findEulerPath();
             if (path) {
+                displayedPath = path;
                 drawHexagonGrid();
-                drawEulerPath(path);
                 document.getElementById('pathInfo').textContent = `Path information: All enabled hexagons are connected`;
             }
         });
         
         document.getElementById('clearBtn').addEventListener('click', function() {
+            displayedPath = null;
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             hexagons = [];
             edges = [];
@@ -717,26 +739,46 @@
         // 添加畫布點擊事件處理
         canvas.addEventListener('click', function(event) {
             const rect = canvas.getBoundingClientRect();
-            const x = event.clientX - rect.left;
-            const y = event.clientY - rect.top;
+            const x = ((event.clientX - rect.left - canvas.clientLeft) * canvas.width / canvas.clientWidth - sceneTransform.x) / sceneTransform.scale;
+            const y = ((event.clientY - rect.top - canvas.clientTop) * canvas.height / canvas.clientHeight - sceneTransform.y) / sceneTransform.scale;
             
             // 檢查點擊是否在任何六邊形內
             for (const hex of hexagons) {
                 if (hex.containsPoint(x, y)) {
-                    hex.toggleEnabled();
-                    drawHexagonGrid(); // 重繪六邊形網格
-                    
-                    // 更新路徑信息
-                    const enabledCount = hexagons.filter(h => h.enabled).length;
-                    document.getElementById('pathCount').textContent = `Number of enabled hexagons: ${enabledCount}`;
-                    document.getElementById('pathInfo').textContent = enabledCount > 0 ? 
-                        'Path information: Click "Find a stroke path" to calculate' : 
-                        'Path information: No hexagons enabled';
+                    focusedHexIndex = hexagons.indexOf(hex);
+                    toggleSelectedHexagon();
                     break;
                 }
             }
         });
         
+        function toggleSelectedHexagon() {
+            const hex = hexagons[focusedHexIndex];
+            if (!hex) return;
+            hex.toggleEnabled();
+            displayedPath = null;
+            drawHexagonGrid();
+            const enabledCount = hexagons.filter(h => h.enabled).length;
+            document.getElementById('pathCount').textContent = `Number of enabled hexagons: ${enabledCount}`;
+            document.getElementById('pathInfo').textContent = enabledCount ? 'Path information: Not yet calculated' : 'Path information: No hexagons enabled';
+        }
+
+        canvas.addEventListener('keydown', event => {
+            if (!hexagons.length || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', ' '].includes(event.key)) return;
+            event.preventDefault();
+            if (['Enter', ' '].includes(event.key)) {
+                toggleSelectedHexagon();
+            } else {
+                focusedHexIndex = (focusedHexIndex + (['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 1) + hexagons.length) % hexagons.length;
+                canvas.setAttribute('aria-label', `Honeycomb connection graph, selected module ${hexagons[focusedHexIndex].id}`);
+                drawHexagonGrid();
+            }
+        });
+        canvas.addEventListener('focus', drawHexagonGrid);
+        canvas.addEventListener('blur', drawHexagonGrid);
+        window.addEventListener('solar-theme-change', drawHexagonGrid);
+        window.addEventListener('solar-language-change', drawHexagonGrid);
+
         // 添加窗口調整事件處理
         window.addEventListener('resize', function() {
             resizeCanvas();
@@ -749,9 +791,10 @@
             generateHexagonGrid(7);
             drawHexagonGrid();
             
-            document.getElementById('pathCount').textContent = `Number of enabled hexagons: 0`;
-            document.getElementById('pathInfo').textContent = `Path information: Click on hexagons to enable them`;
+            document.getElementById('pathCount').textContent = `Number of enabled hexagons: ${hexagons.filter(hex => hex.enabled).length}`;
+            document.getElementById('pathInfo').textContent = 'Path information: Not yet calculated';
         };
     </script>
+    <script src="assets/js/management-console-i18n.js"></script>
 </body>
 </html>

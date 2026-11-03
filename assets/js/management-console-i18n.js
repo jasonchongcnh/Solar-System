@@ -5,6 +5,68 @@
     // A missing third column means the original is already Traditional Chinese.
     // Keep protocol names, units, account IDs and hardware payloads unchanged.
     const CONSOLE_TRANSLATIONS = `
+Standby (UNO R4 AP)|Standby (UNO R4 AP)|待機（UNO R4 AP）
+BASE 基站 (UNO R4 AP 網關)|Base Station (UNO R4 AP Gateway)|基站（UNO R4 AP 網關）
+Gateway RX|Gateway RX|網關接收
+Gateway TX|Gateway TX|網關傳送
+檢視即時網關數據封包終端機|View live gateway packets
+注入一筆示範節點遙測封包|Inject a sample node telemetry packet
+示範通知：模組 ID-07 連接 UNO 熱點的 Wi-Fi 訊號強度為 -68 dBm。|Demo notice: module ID-07 has a -68 dBm Wi-Fi signal to the UNO access point.
+示範通知：控制台已載入，等待 UNO R4 AP 網關連線。|Demo notice: the console has loaded and is waiting for the UNO R4 AP gateway.
+通訊與硬體設定|Communication and hardware settings
+UNO R4 AP • MQTT • LOCAL NETWORK • MACAU RESERVOIR UNIT 1|UNO R4 AP • MQTT • LOCAL NETWORK • MACAU RESERVOIR UNIT 1|UNO R4 AP • MQTT • 本機網路 • 澳門水庫一號機組
+網關連線|Gateway connection
+網關串列埠連線|Gateway serial connection
+Gateway (Active Stream)|Gateway (Active Stream)|網關（即時數據流）
+網關遙測告警|Gateway telemetry alert
+硬體通訊資料監視器 (Web Serial / WebSocket)|Hardware data monitor (Web Serial / WebSocket)
+暫無通訊紀錄。請連線網關或點擊「注入測試」。|No communication logs yet. Connect the gateway or select “Inject Test Packet”.
+網關通訊終端機 (Packet Monitor)|Gateway packet monitor|網關通訊終端機（封包監視器）
+檢視與下載網關及節點韌體|View and download gateway and node firmware
+網關與節點韌體|Gateway and node firmware
+標準傳輸率|Standard baud rate
+Legacy gateway .ino|Legacy gateway .ino|舊版網關 .ino
+Legacy node .ino|Legacy node .ino|舊版節點 .ino
+ESP32 MQTT Node .ino|ESP32 MQTT Node .ino|ESP32 MQTT 節點 .ino
+UNO R4 / ESP32 firmware and wiring|UNO R4 / ESP32 firmware and wiring|UNO R4／ESP32 韌體與接線
+UNO R4 / MQTT setup|UNO R4 / MQTT setup|UNO R4／MQTT 設定指南
+Gateway responded|Gateway responded|網關已應答
+連線網關 (USB Serial)|Connect gateway (USB Serial)
+斷開網關 (USB)|Disconnect gateway (USB)
+Live gateway connected|Live gateway connected|即時網關已連接
+Real Hardware Mode|Real hardware mode|實體硬體模式
+連線 Wi-Fi 網關|Connect Wi-Fi gateway
+連接 UNO R4 AP 的 MQTT 中繼服務或舊版 ESP32 WebSocket 網關。|Connect to the UNO R4 AP's MQTT bridge or legacy ESP32 WebSocket gateway.
+UNO R4 AP / MQTT：電腦與 XIAO 節點連接 HexagonSolar-UNO-R4 熱點；電腦固定 IP 為 192.168.4.250，啟動 Mosquitto 及中繼服務。|UNO R4 AP / MQTT: join the computer and XIAO nodes to HexagonSolar-UNO-R4; set the computer to 192.168.4.250 and start Mosquitto and the bridge.
+其他裝置需連接 UNO 熱點，並使用電腦的中繼位址。|Other devices must join the UNO access point and use the computer's bridge address.
+舊版 ESP-NOW：連接 ESP32 的 HexagonSolar-BaseGateway 熱點，再輸入網關位址。|Legacy ESP-NOW: join the ESP32 HexagonSolar-BaseGateway access point, then enter the gateway address.
+HTTPS 頁面需要安全的 wss:// 中繼或 USB Serial；本機 HTTP 可使用 ws://。|HTTPS pages require a secure wss:// bridge or USB Serial; local HTTP can use ws://.
+MQTT：每個程式資料夾保留 MqttSettings.h、MqttSupport.h、Secrets.example.h、AccessPointConfig.h 及 AccessPointSecrets.example.h；UNO 另需 UnoAccessPoint.h，節點另需 NodeConfig.h。先閱讀 MQTT 設定指南，確認板型及接腳再上傳。|MQTT: keep MqttSettings.h, MqttSupport.h, Secrets.example.h, AccessPointConfig.h and AccessPointSecrets.example.h in each sketch folder; the UNO also needs UnoAccessPoint.h and nodes need NodeConfig.h. Read the MQTT setup guide and confirm the board and pins before uploading.
+跳至主要內容|Skip to main content
+運行中|Active
+待機中|Idle
+離線|Offline
+水面智慧浮動太陽能發電系統|Smart Floating Solar Power System
+水面太陽能電站|Floating solar station
+陣列實驗室|Array Lab
+浮動模組陣列|Floating module array
+模擬數據|Demo data
+即時遙測|Live telemetry
+連線中斷|Disconnected
+模組讀數|Module readings
+遙測摘要|Telemetry summary
+平均訊號|Average signal
+待處理通知|Pending notifications
+即時功率 / W|Live power / W
+模擬發電量 / kWh|Demo generation / kWh
+歷史示範數據|Demo history
+儲能示範數據|Storage demo data
+尚無遙測資料|No telemetry yet
+沒有符合的結果|No matching results
+縮小|Zoom out
+放大|Zoom in
+重設縮放|Reset zoom
+導覽選單|Navigation menu
 水面智慧浮動太陽能發電系統 - 管理控制台|Smart Floating Solar Power System — Management Console
 Generation System Dashboard 發電系統控制台|Generation System Dashboard|發電系統控制台
 System Overview 系統總覽|System Overview|系統總覽
@@ -44,6 +106,12 @@ WARNING 警告|Warning|警告
 DANGER 危險|Danger|危險
 System Settings 系統設定|System Settings|系統設定
 基本設定 Basic|Basic Settings|基本設定
+外觀|Appearance
+跟隨系統|System Default
+淺色模式|Light Mode
+深色模式|Dark Mode
+切換至淺色模式|Switch to light mode
+切換至深色模式|Switch to dark mode
 通訊設定 ESP-NOW & Hardware|Communication & Hardware|通訊與硬體設定
 硬體設定 Buck Circuit|Buck Circuit Settings|降壓電路設定
 通知設定 Notification|Notification Settings|通知設定
@@ -164,24 +232,24 @@ WebSocket 網關位址 (Wi-Fi 模式)|WebSocket Gateway Address (Wi-Fi Mode)
 過溫保護 (OTP)|Overtemperature Protection (OTP)
 最大功率點追蹤 MPPT|Maximum Power Point Tracking (MPPT)
 Email 通知|Email Notifications|電子郵件通知
-預覽 Email|Preview Email
-設定 Email 通知 (限管理員)|Configure email notifications (administrators only)
-收件人 Email|Recipient Email
-Email 主旨|Email Subject
-Email 內容|Email Body
-Email 通知預覽|Email Notification Preview
+預覽 Email|Preview Email|預覽電子郵件
+設定 Email 通知 (限管理員)|Configure email notifications (administrators only)|設定電子郵件通知（限管理員）
+收件人 Email|Recipient Email|收件人電子郵件
+Email 主旨|Email Subject|電子郵件主旨
+Email 內容|Email Body|電子郵件內容
+Email 通知預覽|Email Notification Preview|電子郵件通知預覽
 複製內容|Copy Content
-開啟 Email|Open Email
-Email 通知內容已複製|Email notification content copied
-請輸入有效的 Email 收件人|Enter a valid email recipient
-已開啟 Email 應用程式|Email app opened
+開啟 Email|Open Email|開啟電子郵件
+Email 通知內容已複製|Email notification content copied|電子郵件通知內容已複製
+請輸入有效的 Email 收件人|Enter a valid email recipient|請輸入有效的電子郵件收件人
+已開啟 Email 應用程式|Email app opened|已開啟電子郵件應用程式
 此瀏覽器不支援 Web Push 通知|This browser does not support Web Push notifications
 瀏覽器已封鎖通知，請在網站設定中重新允許|Notifications are blocked. Re-enable them in site settings.
 Web Push 通知已啟用|Web Push notifications enabled
 Web Push 通知未啟用|Web Push notifications not enabled
 目前沒有未確認通知。|No unacknowledged notifications.
-每日摘要報告已準備好，可使用 Email 預覽寄送|Daily summary report is ready. Use Email Preview to send it.
-Email 通知尚未啟用|Email notifications are not enabled
+每日摘要報告已準備好，可使用 Email 預覽寄送|Daily summary report is ready. Use Email Preview to send it.|每日摘要報告已準備好，可使用電子郵件預覽寄送
+Email 通知尚未啟用|Email notifications are not enabled|電子郵件通知尚未啟用
 即時推播 (Web Push)|Push Notifications|即時推播
 每日摘要報告|Daily Summary Report
 預覽報告|Preview Report
@@ -351,13 +419,15 @@ Web Push 即時推播|Push notifications|即時推播
 輸入密碼切換|Enter Password to Switch
 切換至|Switch to
 需要輸入此帳號密碼。|requires this account password.
-帳號密碼 / Account Password|Account Password
+帳號密碼 / Account Password|Account Password|帳號密碼
 密碼|password|密碼
 驗證切換權限|Verify Switch Permission
 確認切換|Confirm Switch
 請輸入帳號密碼|Enter the account password
 密碼輸入不正確，無法切換帳號|Incorrect password. Account switch blocked.
 秒前|seconds ago
+分鐘前|minutes ago
+小時前|hours ago
 檢視|View
 啟動/停止|Enable/Disable
 移除|Remove
@@ -433,7 +503,7 @@ ADMIN|ADMIN|管理員
 OPERATOR|OPERATOR|操作員
 GUEST|GUEST|訪客
 CONSOLE LOCKED|CONSOLE LOCKED|控制台已鎖定
-ESP-NOW 2.0 ENCRYPTED SESSION • MACAU RESERVOIR UNIT 1|ESP-NOW 2.0 ENCRYPTED SESSION • MACAU RESERVOIR UNIT 1|ESP-NOW 2.0 加密連線 • 澳門水庫一號機組
+ESP-NOW • Channel 1 • Unencrypted • MACAU RESERVOIR UNIT 1|ESP-NOW • Channel 1 • Unencrypted • MACAU RESERVOIR UNIT 1|ESP-NOW • 頻道 1 • 未加密 • 澳門水庫一號機組
 UTC+08:00 Macau Standard Time|UTC+08:00 Macau Standard Time|UTC+08:00 澳門標準時間
 Macau Base Relay|Macau Base Relay|澳門基站中繼
 Mobile Gateway|Mobile Gateway|行動網關
@@ -480,7 +550,7 @@ Nodes:|Nodes:|節點：
 Edges:|Edges:|連線：
 Generation System|Generation System|發電系統
 WebSocket URL|WebSocket URL|WebSocket 網址
-ESP32-MESH Node|ESP32-MESH Node|ESP32-MESH 節點
+ESP-NOW star network|ESP-NOW star network|ESP-NOW 星狀網路
 Language|Language|語言
 ESP32 接收中繼基站韌體 - Base Station Gateway|ESP32 Base Station Gateway Firmware|ESP32 接收中繼基站韌體
 ESP32 水面浮動太陽能節點韌體 - Solar Node|ESP32 Floating Solar Node Firmware|ESP32 水面浮動太陽能節點韌體
@@ -501,6 +571,121 @@ Serial Write Err:|Serial Write Err:|串列埠寫入錯誤：
 WebSocket Send Err:|WebSocket Send Err:|WebSocket 傳送錯誤：
 [ACK] Command sent to target node|[ACK] Command sent to target node|[確認] 指令已發送至目標節點
 Success:|Success:|成功：
+CONNECTED ENERGY|CONNECTED ENERGY|智慧能源聯網
+MACAU / ARRAY 01|MACAU / ARRAY 01|澳門／一號陣列
+ARRAY / 01|ARRAY / 01|陣列／01
+HEXAGON ARRAY|HEXAGON ARRAY|六角模組陣列
+MODULES|MODULES|個模組
+SIM|SIM|模擬
+LIVE|LIVE|即時
+STALE|STALE|資料逾時
+DISCONNECTED 已斷線|DISCONNECTED|已斷線
+STALE DATA 遙測逾時|STALE DATA|遙測逾時
+Hardware disconnected|Hardware disconnected|硬體已斷線
+Live link stale|Live link stale|即時連線資料逾時
+Telemetry timeout|Telemetry timeout|遙測資料逾時
+No gateway packets received recently|No gateway packets received recently|近期未收到網關封包
+Disconnected|Disconnected|已斷線
+Live telemetry stream active|Live telemetry stream active|即時遙測資料流已啟用
+未連接 (保留最後實測資料)|Disconnected (Last Readings Retained)|未連接（保留最後實測資料）
+Live telemetry|Live telemetry|即時遙測
+Simulation sample|Simulation sample|模擬範例數據
+Simulation|Simulation|模擬模式
+stale|stale|逾時
+資料來源：|Data Source:
+Hall D0–D5：|Hall D0–D5:|霍爾感測 D0–D5：
+D6–D8 configuration：|D6–D8 Configuration:|D6–D8 編號設定：
+Manual / unavailable|Manual / unavailable|手動設定／無可用資料
+Power control：|Power Control:|電源控制：
+Configured|Configured|已設定
+Unavailable|Unavailable|無法使用
+DETECTED|DETECTED|已偵測
+clear|clear|未偵測
+grounded|grounded|接地
+Hall states report magnet/contact detection. Neighbor identities and physical routing require a configured map.|Hall states report magnet/contact detection. Neighbor identities and physical routing require a configured map.|霍爾狀態表示磁鐵或接觸偵測結果；鄰接節點識別與實體路徑需先設定對應圖。
+Simulation: all modules enabled.|Simulation: all modules enabled.|模擬模式：所有模組已啟動。
+Simulation: all modules disabled.|Simulation: all modules disabled.|模擬模式：所有模組已停止。
+Simulation route|Simulation route|模擬路徑
+Simulation data is active until hardware telemetry is connected|Simulation data is active until hardware telemetry is connected|接上硬體遙測前使用模擬數據
+Live route planning is unavailable: Hall sensors detect contact, but do not identify neighboring nodes. Configure a physical map first.|Live route planning is unavailable: Hall sensors detect contact, but do not identify neighboring nodes. Configure a physical map first.|無法規劃實體路徑：霍爾感測器只能偵測接觸，無法辨識鄰接節點。請先設定實體對應圖。
+Disconnect hardware? The last real readings will be retained.|Disconnect hardware? The last real readings will be retained.|是否中斷硬體連線？最後的實測讀數將予保留。
+Hardware disconnected; last real readings retained.|Hardware disconnected; last real readings retained.|硬體已斷線；已保留最後實測讀數。
+USB Serial requires desktop Chrome/Edge on HTTPS or localhost. Use the local HTTP console with the Wi-Fi gateway otherwise.|USB Serial requires desktop Chrome/Edge on HTTPS or localhost. Use the local HTTP console with the Wi-Fi gateway otherwise.|USB Serial 需使用桌面版 Chrome／Edge，並以 HTTPS 或 localhost 開啟。其他情況請透過本機 HTTP 控制台連接 Wi-Fi 網關。
+HTTPS cannot connect to an insecure ws:// gateway. Open this console via local HTTP for Wi-Fi, or use USB Serial on HTTPS.|HTTPS cannot connect to an insecure ws:// gateway. Open this console via local HTTP for Wi-Fi, or use USB Serial on HTTPS.|HTTPS 無法連接未加密的 ws:// 網關。Wi-Fi 連線請以本機 HTTP 開啟控制台，或在 HTTPS 下使用 USB Serial。
+2. The gateway uses its own access point on channel 1. Open this console over local HTTP for|2. The gateway uses its own access point on channel 1. Open this console over local HTTP for|2. 網關使用頻道 1 的獨立熱點。請以本機 HTTP 開啟控制台以連接
+; an HTTPS page requires USB Serial or a separately configured secure WebSocket proxy. Router/LAN station mode is not enabled.|; an HTTPS page requires USB Serial or a separately configured secure WebSocket proxy. Router/LAN station mode is not enabled.|；HTTPS 頁面需使用 USB Serial 或另外設定的加密 WebSocket 代理。目前未啟用路由器／區域網路連線模式。
+Power control unavailable: configure a relay output in the node firmware first.|Power control unavailable: configure a relay output in the node firmware first.|無法控制電源：請先在節點韌體中設定繼電器輸出。
+Test injection is disabled in a hardware session. Reload the page for a separate demo.|Test injection is disabled in a hardware session. Reload the page for a separate demo.|硬體工作階段不允許注入測試數據。請重新載入頁面以使用獨立模擬環境。
+Command sent; awaiting gateway acknowledgement.|Command sent; awaiting gateway acknowledgement.|指令已傳送，正在等待網關確認。
+Enter a valid JSON command.|Enter a valid JSON command.|請輸入有效的 JSON 指令。
+Gateway .ino|Gateway .ino|基站 .ino
+Solar Node .ino|Solar Node .ino|太陽能節點 .ino
+Gateway SolarProtocol.h|Gateway SolarProtocol.h|基站 SolarProtocol.h
+Node SolarProtocol.h|Node SolarProtocol.h|節點 SolarProtocol.h
+README / Wiring|README / Wiring|README／接線指南
+ESP32 / ESP-NOW firmware and wiring|ESP32 / ESP-NOW firmware and wiring|ESP32／ESP-NOW 韌體與接線
+Loading repository firmware...|Loading repository firmware...|正在載入專案韌體…
+Keep each sketch's .ino, configuration header and SolarProtocol.h together in its sketch folder. Read README and confirm the board/pin configuration before flashing.|Keep each sketch's .ino, configuration header and SolarProtocol.h together in its sketch folder. Read README and confirm the board/pin configuration before flashing.|請將每個程式的 .ino、設定標頭及 SolarProtocol.h 放在同一程式資料夾中。燒錄前請閱讀 README 並確認開發板與接腳設定。
+Download file|Download file|下載檔案
+Copy source|Copy source|複製原始碼
+Close|Close|關閉
+Could not load source (|Could not load source (|無法載入原始碼（
+). Open the firmware/ folder locally, or serve this console over HTTP/HTTPS. The file link above opens the actual source.|). Open the firmware/ folder locally, or serve this console over HTTP/HTTPS. The file link above opens the actual source.|）。請在本機開啟 firmware/ 資料夾，或以 HTTP／HTTPS 執行控制台。上方連結可開啟實際原始碼。
+Firmware source copied.|Firmware source copied.|韌體原始碼已複製。
+Cannot copy source:|Cannot copy source:|無法複製原始碼：
+Cannot download source:|Cannot download source:|無法下載原始碼：
+. Use the source link.|. Use the source link.|。請使用原始碼連結。
+Downloaded:|Downloaded:|已下載：
+average|average|平均
+需檢查|Needs Inspection
+Command failed for node #|Command failed for node #|節點指令失敗，編號：
+not acknowledged|not acknowledged|未收到確認
+Gateway error|Gateway error|網關錯誤
+Gateway rejected the command|Gateway rejected the command|網關拒絕執行指令
+[SYS] Web Serial port opened at|[SYS] Web Serial port opened at|[系統] Web Serial 串列埠已開啟，傳輸率
+[ERR] Serial connection:|[ERR] Serial connection:|[錯誤] 串列埠連線：
+Serial connection failed:|Serial connection failed:|串列埠連線失敗：
+[ERR] Oversized serial line discarded until newline.|[ERR] Oversized serial line discarded until newline.|[錯誤] 串列埠資料行過長，已捨棄至換行處。
+[ERR] Serial read:|[ERR] Serial read:|[錯誤] 串列埠讀取：
+[ERR] Serial stream ended; reconnect the gateway.|[ERR] Serial stream ended; reconnect the gateway.|[錯誤] 串列資料流已結束，請重新連接網關。
+[ERR] Serial close:|[ERR] Serial close:|[錯誤] 串列埠關閉：
+[SYS] WebSocket connected.|[SYS] WebSocket connected.|[系統] WebSocket 已連接。
+[ERR] Oversized WebSocket message discarded.|[ERR] Oversized WebSocket message discarded.|[錯誤] WebSocket 訊息過長，已捨棄。
+[ERR] Oversized WebSocket line discarded.|[ERR] Oversized WebSocket line discarded.|[錯誤] WebSocket 資料行過長，已捨棄。
+[ERR] WebSocket connection:|[ERR] WebSocket connection:|[錯誤] WebSocket 連線：
+[ERR] Automatic reconnect exhausted; check the gateway Wi-Fi.|[ERR] Automatic reconnect exhausted; check the gateway Wi-Fi.|[錯誤] 自動重連次數已用盡，請檢查網關 Wi-Fi。
+[ERR] Power command blocked: no confirmed relay output or stale node.|[ERR] Power command blocked: no confirmed relay output or stale node.|[錯誤] 電源指令已封鎖：未確認繼電器輸出或節點資料已逾時。
+[SYS] Command recorded locally. No live hardware transport is connected.|[SYS] Command recorded locally. No live hardware transport is connected.|[系統] 指令已記錄於本機，目前未連接實體硬體通道。
+[ERR] Ignored telemetry with invalid node ID.|[ERR] Ignored telemetry with invalid node ID.|[錯誤] 遙測資料的節點編號無效，已忽略。
+waiting for application acknowledgement.|waiting for application acknowledgement.|正在等待節點應用程式確認。
+[ACK] Node #|[ACK] Node #|[確認] 節點編號：
+[PENDING] Node #|[PENDING] Node #|[待確認] 節點編號：
+acknowledged|acknowledged|已確認
+Management Console|Management Console|管理控制台
+Number of hexagons:|Number of hexagons:|六角模組數量：
+Generate a honeycomb|Generate a honeycomb|產生蜂窩陣列
+Find a stroke path|Find a stroke path|尋找一筆畫路徑
+Honeycomb connection graph|Honeycomb connection graph|蜂窩連接圖
+selected module|selected module|已選取模組
+Number of unique connection paths:|Number of unique connection paths:|連接路徑數量：
+Number of enabled hexagons:|Number of enabled hexagons:|啟用模組數量：
+Path information:|Path information:|路徑資訊：
+Not yet calculated|Not yet calculated|尚未計算
+No hexagons enabled|No hexagons enabled|尚未啟用模組
+Can draw connecting path|Can draw connecting path|可繪製連接路徑
+Can't draw path|Can't draw path|無法繪製路徑
+All enabled hexagons are connected|All enabled hexagons are connected|所有啟用模組已連接
+Please enable at least one hexagon first!|Please enable at least one hexagon first!|請先啟用至少一個六角模組！
+Please enter number between 1 to 20!|Please enter number between 1 to 20!|請輸入 1 至 20 之間的數量！
+Please generate honeycomb first!|Please generate honeycomb first!|請先產生蜂窩陣列！
+Please enable at least one hexagon by clicking on it!|Please enable at least one hexagon by clicking on it!|請先選取並啟用至少一個六角模組！
+無法找到一筆畫路徑！|No single-stroke path found!
+ID:|ID:|編號：
+[SYS]|[SYS]|[系統]
+[ERR]|[ERR]|[錯誤]
+Email|Email|電子郵件
+To:|To:|收件人：
+Subject:|Subject:|主旨：
 `;
 
     (() => {
@@ -514,6 +699,11 @@ Success:|Success:|成功：
         const [source, en, zh = source] = row.split('|');
         return [source, { en, 'zh-TW': zh }];
       }));
+      // Dynamic UI may already be rendered in English when its text node is created.
+      // Accept English output as a source too, so switching back remains reversible.
+      for (const entry of [...catalog.values()]) {
+        if (/[A-Za-z]/.test(entry.en) && !catalog.has(entry.en)) catalog.set(entry.en, entry);
+      }
       const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       // Match once, longest phrase first, so translated output is never translated again.
       const pattern = new RegExp([...catalog.keys()].sort((a, b) => b.length - a.length).map(source => {
@@ -523,8 +713,9 @@ Success:|Success:|成功：
         return left + phrase + right;
       }).join('|'), 'g');
       const normalizedCatalog = new Map([...catalog].map(([key, value]) => [key.replace(/\s+/g, ' '), value]));
-      function translate(source) {
-        return String(source).replace(pattern, match => normalizedCatalog.get(match.replace(/\s+/g, ' '))[language]);
+      function translate(source, locale = language) {
+        const target = supported.includes(locale) ? locale : language;
+        return String(source).replace(pattern, match => normalizedCatalog.get(match.replace(/\s+/g, ' '))[target]);
       }
       function firmware(source, tab) {
         if (tab === 'guide') return language === 'zh-TW' ? source : `# ESP32 & ESP-NOW Wiring and Flashing Guide
@@ -605,13 +796,15 @@ Success:|Success:|成功：
         // Translate only untouched default settings, never user-entered values.
         document.querySelectorAll('[data-localized-default]').forEach(input => {
           const previous = input.dataset.localizedValue || input.defaultValue;
-          if (input.value === previous) {
+          const presets = [previous, input.defaultValue, ...supported.map(locale => translate(input.defaultValue, locale))];
+          if (presets.includes(input.value)) {
             input.value = translate(input.defaultValue);
             input.dataset.localizedValue = input.value;
           }
         });
         if (typeof drawAll === 'function') drawAll();
         observe();
+        window.dispatchEvent(new CustomEvent('solar-language-change', { detail: { language } }));
       }
       function setLanguage(value) {
         if (!supported.includes(value)) return;

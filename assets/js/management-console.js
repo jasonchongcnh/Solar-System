@@ -1,6 +1,7 @@
 // ==================== 變數初始化 ====================
     const canvas = document.getElementById('hexCanvas');
     const ctx = canvas.getContext('2d');
+    let canvasWidth = 0, canvasHeight = 0;
     let hexagons = [];
     let edges = [];
     let hexPaths = [];
@@ -8,13 +9,19 @@
     let viewMode = 'id';
     let currentZoom = 1;
     let offsetX = 0, offsetY = 0;
+    let focusedHexId = null;
+    let modalReturnFocus = null;
+    let modalReturnDeviceFocus = null;
 
-    // ==================== 實體 ESP-NOW / Web Serial / WebSocket 變數 ====================
+    // ==================== 實體網關 / Web Serial / WebSocket 變數 ====================
     let isHardwareConnected = false;
+    let hardwareSessionStarted = false;
     let serialPort = null;
     let serialReader = null;
     let serialWriter = null;
     let serialKeepReading = false;
+    let serialReadTask = null;
+    let serialConnecting = false;
     let wsClient = null;
     let hardwareRxCount = 0;
     let hardwareTxCount = 0;
@@ -24,13 +31,45 @@
     let activePeerNodes = new Map(); // id -> lastSeenTimestamp
     let terminalLogs = [];           // { type: 'rx'|'tx'|'sys'|'err', time: string, msg: string }
     let simulationInterval = null;
+    let connectionHealthInterval = null;
+    let wsReconnectTimer = null;
+    let wsReconnectAttempts = 0;
+    let wsShouldReconnect = false;
+    let wsLastUrl = '';
+    let wsConnectGeneration = 0;
+    const MAX_WS_RECONNECT_ATTEMPTS = 5;
+    const TELEMETRY_STALE_MS = 30000;
+    const TELEMETRY_SOURCE_SIM = 'simulation';
+    const TELEMETRY_SOURCE_LIVE = 'live';
+    const deviceTelemetry = new Map();
+    const powerLogEntries = [];
+    const DEFAULT_DEVICE_LAYOUT = [
+      [0, 0], [1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1], [2, -1]
+    ];
 
     // ==================== 畫布初始化 ====================
+    function arrayModuleSize() {
+      const availableHeight = canvasHeight - (canvasWidth < 560 ? 70 : 0);
+      return Math.min(canvasWidth / 7.4, availableHeight / 5.2, 68) * currentZoom;
+    }
+
+    function arrayCenterY() {
+      return (canvasHeight - (canvasWidth < 560 ? 70 : 0)) / 2;
+    }
+
     function resizeCanvas() {
       const wrapper = canvas.parentElement;
-      canvas.width = wrapper.clientWidth;
-      canvas.height = 600;
-      if (hexagons.length > 0) drawAll();
+      const width = wrapper.clientWidth;
+      const height = wrapper.clientHeight;
+      // Hidden pages have no layout. Preserve the geometry until they are shown.
+      if (!width || !height) return;
+      canvasWidth = width;
+      canvasHeight = height;
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.round(width * ratio);
+      canvas.height = Math.round(height * ratio);
+      ctx.setTransform(canvas.width / width, 0, 0, canvas.height / height, 0, 0);
+      zoomHex(0);
     }
 
     // ==================== 六邊形類別 ====================
@@ -42,25 +81,27 @@
         this.size = size;
         const hexWidth = size * Math.sqrt(3);
         const hexHeight = size * 1.5;
-        const cx = canvas.width / 2 + hexWidth * (q + r * 0.5);
-        const cy = canvas.height / 2 + hexHeight * r;
+        const cx = canvasWidth / 2 + hexWidth * (q + r * 0.5);
+        const cy = arrayCenterY() + hexHeight * r;
+        const sample = ensureDeviceTelemetry(id);
         this.centerX = cx;
         this.centerY = cy;
-        this.enabled = id === 1 || id === 5;
-        this.power = (Math.random() * 8 + 2).toFixed(1);
-        this.temp = (30 + Math.random() * 12).toFixed(1);
-        this.signal = -40 - Math.floor(Math.random() * 30);
-        this.voltage = 12.05;
-        this.current = 0.55;
+        this.enabled = sample.status !== 'offline';
+        this.power = sample.power.toFixed(1);
+        this.temp = sample.temp.toFixed(1);
+        this.signal = sample.signal;
+        this.voltage = sample.voltage;
+        this.current = sample.current;
         this.vertices = this.calcVertices();
+        updateTelemetryFromHex(this, TELEMETRY_SOURCE_SIM, { preserveLastReport: true });
       }
       calcVertices() {
         const v = [];
         for (let i = 0; i < 6; i++) {
           const angle = (Math.PI / 3) * i - Math.PI / 6;
           v.push({
-            x: this.centerX + this.size * Math.cos(angle),
-            y: this.centerY + this.size * Math.sin(angle)
+            x: this.centerX + this.size * 0.91 * Math.cos(angle),
+            y: this.centerY + this.size * 0.91 * Math.sin(angle)
           });
         }
         return v;
@@ -79,60 +120,82 @@
       draw() {
         ctx.save();
         let fill, stroke, glow;
-        if (this.enabled) {
-          fill = 'rgba(0, 229, 200, 0.12)';
-          stroke = '#00e5c8';
-          glow = 'rgba(0, 229, 200, 0.7)';
+        const stale = isRecordStale(ensureDeviceTelemetry(this.id));
+        if (this.enabled && !stale) {
+          fill = '#2c5147';
+          stroke = '#9ebaa7';
+          glow = 'rgba(32, 61, 49, 0.18)';
         } else {
-          fill = 'rgba(255, 107, 157, 0.08)';
-          stroke = '#ff6b9d';
-          glow = 'rgba(255, 107, 157, 0.5)';
+          fill = '#75515a';
+          stroke = '#d2aeb6';
+          glow = 'rgba(77, 41, 49, 0.15)';
         }
         if (viewMode === 'power' && this.enabled) {
-          const p = parseFloat(this.power) / 10;
-          fill = `rgba(0, 229, 200, ${0.05 + p * 0.25})`;
-        } else if (viewMode === 'temp') {
-          const t = (parseFloat(this.temp) - 30) / 15;
-          fill = `rgba(${200 * t}, ${229 * (1 - t)}, 200, 0.2)`;
-          stroke = `rgb(${255 * t}, ${229 * (1 - t / 2)}, ${200 * (1 - t)})`;
-        } else if (viewMode === 'signal') {
-          const s = (this.signal + 80) / 40;
-          fill = `rgba(199, 125, 255, ${0.05 + s * 0.2})`;
+          const p = Math.max(0, Math.min(1, parseFloat(this.power) / 10));
+          fill = `hsl(150, 28%, ${24 + p * 16}%)`;
+        } else if (viewMode === 'temp' && hasMeasurement(ensureDeviceTelemetry(this.id), 'temp')) {
+          const t = Math.max(0, Math.min(1, (parseFloat(this.temp) - 30) / 15));
+          fill = `hsl(${180 - t * 165}, 30%, 32%)`;
+          stroke = '#cad7d1';
+        } else if (viewMode === 'signal' && hasMeasurement(ensureDeviceTelemetry(this.id), 'signal')) {
+          const s = Math.max(0, Math.min(1, (this.signal + 80) / 40));
+          fill = `hsl(212, 30%, ${26 + s * 14}%)`;
         }
         ctx.shadowColor = glow;
-        ctx.shadowBlur = 15;
+        ctx.shadowBlur = 10;
+        ctx.shadowOffsetY = 5;
         ctx.beginPath();
         ctx.moveTo(this.vertices[0].x, this.vertices[0].y);
         for (let i = 1; i < 6; i++) ctx.lineTo(this.vertices[i].x, this.vertices[i].y);
         ctx.closePath();
         ctx.fillStyle = fill;
         ctx.fill();
-        ctx.shadowBlur = 8;
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
         ctx.strokeStyle = stroke;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = focusedHexId === this.id ? 3 : 2;
+        if (focusedHexId === this.id) ctx.strokeStyle = '#3161ab';
         ctx.stroke();
         ctx.shadowBlur = 0;
 
+        // Photovoltaic cell lines stay clipped to each module's physical outline.
+        ctx.save();
+        ctx.clip();
+        ctx.strokeStyle = '#e0f0e314';
+        ctx.lineWidth = 1;
+        const cell = this.size / 4;
+        for (let step = -4; step <= 4; step++) {
+          ctx.beginPath();
+          ctx.moveTo(this.centerX + step * cell, this.centerY - this.size);
+          ctx.lineTo(this.centerX + step * cell, this.centerY + this.size);
+          ctx.moveTo(this.centerX - this.size, this.centerY + step * cell);
+          ctx.lineTo(this.centerX + this.size, this.centerY + step * cell);
+          ctx.stroke();
+        }
+        ctx.restore();
+
         if (showLabels) {
-          ctx.fillStyle = this.enabled ? '#00ffc6' : '#ff6b9d';
-          ctx.font = 'bold 14px Orbitron, monospace';
+          ctx.fillStyle = '#ffffff';
+          const labelSize = Math.min(14, this.size * 0.42);
+          const lineOffset = Math.min(12, this.size * 0.32);
+          ctx.font = `500 ${labelSize}px Consolas, monospace`;
           ctx.textAlign = 'center';
           ctx.shadowColor = glow;
-          ctx.shadowBlur = 10;
-          ctx.fillText(`ID:${this.id}`, this.centerX, this.centerY - 12);
-          ctx.font = '12px "Noto Sans TC", Orbitron, monospace';
-          const statusText = this.enabled ? 'ON' : 'OFF';
-          ctx.fillStyle = this.enabled ? '#00ffc6' : '#ff6b9d';
-          ctx.fillText(window.consoleI18n?.translate(statusText) || statusText, this.centerX, this.centerY + 12);
           ctx.shadowBlur = 0;
-          ctx.font = '10px Noto Sans TC';
-          ctx.fillStyle = '#7dd6c9';
+          ctx.fillText(`HEX-${String(this.id).padStart(2, '0')}`, this.centerX, this.centerY - lineOffset);
+          ctx.font = `${Math.min(11, labelSize)}px "Segoe UI", "Microsoft JhengHei", sans-serif`;
+          const statusText = stale ? 'STALE' : (this.enabled ? 'ON' : 'OFF');
+          ctx.fillStyle = this.enabled && !stale ? '#d8efb7' : '#ffdae1';
+          ctx.fillText(window.consoleI18n?.translate(statusText) || statusText, this.centerX, this.centerY + lineOffset);
+          ctx.shadowBlur = 0;
+          ctx.font = `${Math.min(10, this.size * 0.3)}px "Noto Sans TC", sans-serif`;
+          ctx.fillStyle = '#e1eee7';
           if (viewMode === 'power' && this.enabled) {
-            ctx.fillText(`${this.power} kWh`, this.centerX, this.centerY + 28);
+            ctx.fillText(`${formatMeasurement(ensureDeviceTelemetry(this.id), 'power')} ${hardwareSessionStarted ? 'W' : 'kWh'}`, this.centerX, this.centerY + lineOffset * 2.2);
           } else if (viewMode === 'temp') {
-            ctx.fillText(`${this.temp}°C`, this.centerX, this.centerY + 28);
+            ctx.fillText(`${formatMeasurement(ensureDeviceTelemetry(this.id), 'temp')}°C`, this.centerX, this.centerY + lineOffset * 2.2);
           } else if (viewMode === 'signal') {
-            ctx.fillText(`${this.signal}dBm`, this.centerX, this.centerY + 28);
+            ctx.fillText(`${formatMeasurement(ensureDeviceTelemetry(this.id), 'signal', 0)}dBm`, this.centerX, this.centerY + lineOffset * 2.2);
           }
         }
         ctx.restore();
@@ -141,7 +204,7 @@
 
     // ==================== 畫布繪製控制 ====================
     function clearCanvas() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
       hexagons = [];
       edges = [];
       hexPaths = [];
@@ -149,15 +212,14 @@
     }
 
     function generateDefault() {
+      if (hardwareSessionStarted) return;
       clearCanvas();
-      const size = Math.min(canvas.width, canvas.height) * 0.09;
-      const positions = [
-        [0, 0], [1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1], [2, -1]
-      ];
-      positions.forEach((p, i) => {
+      const size = arrayModuleSize();
+      DEFAULT_DEVICE_LAYOUT.forEach((p, i) => {
         const hex = new Hexagon(i + 1, p[0], p[1], size);
         hexagons.push(hex);
       });
+      seedPowerLog();
       buildEdges();
       updateStats();
       drawAll();
@@ -165,6 +227,8 @@
 
     function buildEdges() {
       edges = [];
+      // Hall switches report contact presence, not the identity of another node.
+      if (hardwareSessionStarted) return;
       const directions = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
       const map = new Map();
       hexagons.forEach(h => map.set(`${h.q},${h.r}`, h.id));
@@ -186,9 +250,9 @@
     function drawEdges() {
       edges.forEach(e => {
         ctx.save();
-        ctx.strokeStyle = 'rgba(0, 229, 200, 0.35)';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = '#96aea1';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([]);
         ctx.beginPath();
         ctx.moveTo(e.from.centerX, e.from.centerY);
         ctx.lineTo(e.to.centerX, e.to.centerY);
@@ -198,6 +262,10 @@
     }
 
     function findPath() {
+      if (hardwareSessionStarted) {
+        showToast('Live route planning is unavailable: Hall sensors detect contact, but do not identify neighboring nodes. Configure a physical map first.');
+        return;
+      }
       if (hexagons.length === 0) {
         showToast('請先產生蜂窩模組！');
         return;
@@ -235,7 +303,7 @@
         drawAll();
         animatePath(result);
         sendHardwareCommand({ cmd: "set_path", path: result });
-        showToast(`✓ 歐亞迴路找到！長度 ${result.length} 節點 (巡檢路徑已發送至 ESP-NOW)`);
+        showToast(`✓ 歐亞迴路找到！長度 ${result.length} 節點 (Simulation route)`);
       } else {
         showToast('未找到連接所有啟用模組的路徑');
       }
@@ -313,7 +381,13 @@
     }
 
     function drawAll() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+      ctx.save();
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--diagram-grid').trim();
+      for (let x = 18; x < canvasWidth; x += 24) {
+        for (let y = 18; y < canvasHeight; y += 24) ctx.fillRect(x, y, 1, 1);
+      }
+      ctx.restore();
       drawEdges();
       hexagons.forEach(h => h.draw());
       if (hexPaths.length > 1) {
@@ -325,6 +399,7 @@
     function toggleLabels() {
       showLabels = !showLabels;
       document.getElementById('toggleLabel').classList.toggle('active');
+      document.getElementById('toggleLabel').setAttribute('aria-pressed', String(showLabels));
       drawAll();
     }
 
@@ -333,34 +408,37 @@
       document.querySelectorAll('.control-buttons .control-btn').forEach((b, idx) => {
         const modes = ['id', 'power', 'temp', 'signal'];
         b.classList.toggle('active', modes[idx] === mode);
+        b.setAttribute('aria-pressed', String(modes[idx] === mode));
       });
       drawAll();
     }
 
     function allOn() {
       if (!checkPermission('control', '全部啟動模組')) return;
+      if (hardwareSessionStarted) { sendHardwareCommand({ cmd: 'all_power', enabled: true }); return; }
       hexagons.forEach(h => h.enabled = true);
       updateStats();
       drawAll();
       sendHardwareCommand({ cmd: "all_power", enabled: true });
-      showToast('✓ 所有裝置已啟動 (ESP-NOW 指令已廣播)');
+      showToast('Simulation: all modules enabled.');
     }
 
     function allOff() {
       if (!checkPermission('control', '全部停止模組')) return;
+      if (hardwareSessionStarted) { sendHardwareCommand({ cmd: 'all_power', enabled: false }); return; }
       hexagons.forEach(h => h.enabled = false);
       updateStats();
       drawAll();
       sendHardwareCommand({ cmd: "all_power", enabled: false });
-      showToast('所有裝置已停止 (ESP-NOW 指令已廣播)');
+      showToast('Simulation: all modules disabled.');
     }
 
     function zoomHex(delta) {
       if (hexagons.length === 0) return;
       currentZoom = Math.max(0.5, Math.min(2, currentZoom + delta));
-      const cx = canvas.width / 2;
-      const cy = canvas.height / 2;
-      const size = Math.min(canvas.width, canvas.height) * 0.09 * currentZoom;
+      const cx = canvasWidth / 2;
+      const cy = arrayCenterY();
+      const size = arrayModuleSize();
       hexagons.forEach(h => {
         h.size = size;
         const hw = size * Math.sqrt(3);
@@ -375,45 +453,268 @@
 
     function resetZoom() {
       currentZoom = 1;
-      if (hexagons.length > 0) generateDefault();
+      zoomHex(0);
     }
 
     canvas.addEventListener('click', (e) => {
       const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const x = (e.clientX - rect.left) * canvasWidth / rect.width;
+      const y = (e.clientY - rect.top) * canvasHeight / rect.height;
       for (const h of hexagons) {
         if (h.containsPoint(x, y)) {
-          if (!checkPermission('control', '切換模組電源')) return;
-          h.enabled = !h.enabled;
-          updateStats();
+          focusedHexId = h.id;
           drawAll();
-          sendHardwareCommand({ cmd: "set_power", id: h.id, enabled: h.enabled });
-          showToast(`模組 ID-${h.id} 已${h.enabled ? '啟動 ON' : '停止 OFF'} (ESP-NOW 指令已下發)`);
+          viewDevice(h.id);
           break;
         }
       }
     });
 
     // ==================== 頁面切換 ====================
+    const navToggle = document.getElementById('navToggle');
+    const compactNavigation = window.matchMedia('(max-width: 1024px)');
+    function setNavigationOpen(open) {
+      const sidebar = document.querySelector('.sidebar');
+      if (!open && compactNavigation.matches && sidebar.contains(document.activeElement)) {
+        navToggle.focus();
+      }
+      sidebar.classList.toggle('nav-open', open);
+      navToggle.setAttribute('aria-expanded', String(open));
+    }
+    navToggle.addEventListener('click', () => {
+      setNavigationOpen(navToggle.getAttribute('aria-expanded') !== 'true');
+    });
+    compactNavigation.addEventListener('change', () => setNavigationOpen(false));
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') setNavigationOpen(false);
+    });
     document.querySelectorAll('.nav-item').forEach(item => {
-      item.addEventListener('click', () => {
-        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-        item.classList.add('active');
-        const page = item.dataset.page;
-        document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active'));
-        document.getElementById('page-' + page).classList.add('active');
-      });
+      item.addEventListener('click', () => navigateTo(item.dataset.page));
     });
 
     // ==================== 小工具 & 全域函式 ====================
     function updateStats() {
-      const total = hexagons.length;
-      const active = hexagons.filter(h => h.enabled).length;
-      document.getElementById('statTotal').textContent = total || '8';
+      syncTelemetryFromHexagons({ preserveLastReport: true });
+      const records = getDeviceRecords();
+      const total = records.length || hexagons.length;
+      const active = records.filter(r => r.status === 'online' && !isRecordStale(r)).length;
+      const offline = records.filter(r => r.status === 'offline' || isRecordStale(r)).length;
+      const idle = Math.max(0, total - active - offline);
+      document.getElementById('statTotal').textContent = total || (hardwareSessionStarted ? '0' : '8');
       document.getElementById('statActive').textContent = active;
-      document.getElementById('statIdle').textContent = Math.max(0, (total || 8) - active);
-      document.getElementById('statOffline').textContent = '0';
+      document.getElementById('statIdle').textContent = idle;
+      document.getElementById('statOffline').textContent = offline;
+      updatePowerSummaryUI();
+      window.refreshWorkspace?.();
+    }
+
+    function numberOr(value, fallback) {
+      if (value === null || value === undefined || value === '') return fallback;
+      const n = Number(value);
+      return Number.isFinite(n) ? n : fallback;
+    }
+
+    const MEASUREMENT_FIELDS = ['voltage', 'current', 'power', 'temp', 'signal'];
+
+    function hasMeasurement(record, field) {
+      return record.source !== TELEMETRY_SOURCE_LIVE || record.measurementAvailable?.[field] === true;
+    }
+
+    function formatMeasurement(record, field, digits = 1) {
+      return hasMeasurement(record, field) ? numberOr(record[field], 0).toFixed(digits) : '--';
+    }
+
+    function startHardwareSession() {
+      if (hardwareSessionStarted) return;
+      hardwareSessionStarted = true;
+      deviceTelemetry.clear();
+      activePeerNodes.clear();
+      powerLogEntries.length = 0;
+      deviceIds = [];
+      deviceCount = 0;
+      hexagons = [];
+      edges = [];
+      hexPaths = [];
+      updateStats();
+      buildDeviceTable();
+      buildPowerLog();
+      drawAll();
+    }
+
+    function deviceCoordinates(id) {
+      const layout = DEFAULT_DEVICE_LAYOUT[id - 1] || [(id % 3) - 1, Math.floor(id / 3) - 1];
+      return { q: layout[0], r: layout[1] };
+    }
+
+    function deterministicDeviceSample(id) {
+      const coord = deviceCoordinates(id);
+      const onlinePattern = id % 8 === 0 ? 'offline' : (id % 4 === 0 ? 'warning' : 'online');
+      const enabled = onlinePattern !== 'offline';
+      const voltage = enabled ? 11.9 + (id % 5) * 0.08 : 0;
+      const power = enabled ? 3.8 + (id % 6) * 1.35 : 0;
+      return {
+        id,
+        q: coord.q,
+        r: coord.r,
+        status: onlinePattern,
+        enabled,
+        voltage,
+        current: enabled ? power / voltage : 0,
+        power,
+        temp: enabled ? 31.5 + (id % 7) * 1.7 : 0,
+        signal: enabled ? -42 - (id % 6) * 4 : -90,
+        mac: `24:6F:28:AA:BB:${String(id).padStart(2, '0')}`,
+        source: TELEMETRY_SOURCE_SIM,
+        lastReport: Date.now() - id * 7000
+      };
+    }
+
+    function ensureDeviceTelemetry(id) {
+      if (!deviceTelemetry.has(id)) {
+        deviceTelemetry.set(id, deterministicDeviceSample(id));
+      }
+      return deviceTelemetry.get(id);
+    }
+
+    function updateTelemetryRecord(id, updates = {}, source = TELEMETRY_SOURCE_SIM) {
+      const existing = ensureDeviceTelemetry(id);
+      const cleanUpdates = Object.fromEntries(
+        Object.entries(updates).filter(([, value]) => value !== undefined && value !== null && value !== '')
+      );
+      const next = Object.assign({}, existing, cleanUpdates, {
+        id,
+        source,
+        lastReport: cleanUpdates.lastReport || Date.now()
+      });
+      next.enabled = cleanUpdates.enabled !== undefined ? !!cleanUpdates.enabled : !!next.enabled;
+      next.status = cleanUpdates.status || (next.enabled ? 'online' : 'offline');
+      next.voltage = numberOr(next.voltage, 0);
+      next.current = numberOr(next.current, next.voltage ? numberOr(next.power, 0) / next.voltage : 0);
+      next.power = numberOr(next.power, next.voltage * next.current);
+      next.temp = numberOr(next.temp, 0);
+      next.signal = numberOr(next.signal, -90);
+      if (source === TELEMETRY_SOURCE_LIVE) {
+        next.status = cleanUpdates.status || 'online';
+        next.measurementAvailable = {};
+        MEASUREMENT_FIELDS.forEach(field => {
+          const available = typeof updates[field] === 'number' && Number.isFinite(updates[field]);
+          next.measurementAvailable[field] = available;
+          next[field] = available ? updates[field] : 0;
+        });
+        next.mac = typeof updates.mac === 'string' ? updates.mac : '--';
+        next.powerControlAvailable = updates.powerControlAvailable === true;
+      }
+      deviceTelemetry.set(id, next);
+      return next;
+    }
+
+    function updateTelemetryFromHex(hex, source = TELEMETRY_SOURCE_SIM, options = {}) {
+      const existing = ensureDeviceTelemetry(hex.id);
+      if (existing.source === TELEMETRY_SOURCE_LIVE) return existing;
+      return updateTelemetryRecord(hex.id, {
+        q: hex.q,
+        r: hex.r,
+        enabled: !!hex.enabled,
+        status: hex.enabled ? (existing.status === 'warning' ? 'warning' : 'online') : 'offline',
+        voltage: numberOr(hex.voltage, existing.voltage),
+        current: numberOr(hex.current, existing.current),
+        power: numberOr(hex.power, existing.power),
+        temp: numberOr(hex.temp, existing.temp),
+        signal: numberOr(hex.signal, existing.signal),
+        mac: existing.mac,
+        lastReport: options.preserveLastReport ? existing.lastReport : Date.now()
+      }, source);
+    }
+
+    function syncTelemetryFromHexagons(options = {}) {
+      hexagons.forEach(hex => updateTelemetryFromHex(hex, deviceTelemetry.get(hex.id)?.source || TELEMETRY_SOURCE_SIM, options));
+      deviceIds.forEach(id => ensureDeviceTelemetry(id));
+    }
+
+    function getDeviceRecords() {
+      syncTelemetryFromHexagons({ preserveLastReport: true });
+      return deviceIds.map(id => ensureDeviceTelemetry(id));
+    }
+
+    function formatSecondsAgo(timestamp) {
+      if (!timestamp) return '-';
+      const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+      if (seconds < 60) return `${String(seconds).padStart(2, '0')} 秒前`;
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes} 分鐘前`;
+      return `${Math.floor(minutes / 60)} 小時前`;
+    }
+
+    function isRecordStale(record) {
+      return record.source === TELEMETRY_SOURCE_LIVE
+        && record.lastReport
+        && Date.now() - record.lastReport > TELEMETRY_STALE_MS;
+    }
+
+    function statusLabel(record) {
+      if (isRecordStale(record)) return 'STALE';
+      if (record.source === TELEMETRY_SOURCE_LIVE && !record.enabled && record.status !== 'offline') return 'OFF';
+      if (record.status === 'warning') return 'WARNING';
+      if (record.status === 'offline') return 'OFFLINE';
+      return 'ONLINE';
+    }
+
+    function statusClass(record) {
+      if (isRecordStale(record)) return 'stale';
+      return record.status;
+    }
+
+    function appendPowerLog(record, time = new Date()) {
+      if (record.source === TELEMETRY_SOURCE_LIVE) return;
+      powerLogEntries.unshift({
+        timestamp: time,
+        deviceId: record.id,
+        power: record.power,
+        voltage: record.voltage,
+        current: record.current || (record.voltage ? record.power / record.voltage : 0),
+        efficiency: record.status === 'warning' ? 86.5 : Math.min(98, 89 + (record.id % 6) * 1.3),
+        status: record.status === 'offline' ? '離線' : (record.status === 'warning' ? '需檢查' : '正常')
+      });
+      if (powerLogEntries.length > 60) powerLogEntries.length = 60;
+    }
+
+    function seedPowerLog() {
+      if (hardwareSessionStarted) return;
+      if (powerLogEntries.length) return;
+      const base = Date.now();
+      getDeviceRecords().filter(r => r.status !== 'offline').slice(0, 7).forEach((record, idx) => {
+        appendPowerLog(record, new Date(base - idx * 30 * 60 * 1000));
+      });
+    }
+
+    function updatePowerSummaryUI() {
+      const records = getDeviceRecords();
+      if (hardwareSessionStarted) {
+        const measured = records.filter(r => !isRecordStale(r) && hasMeasurement(r, 'power'));
+        setText('#metricCurrentOutput', measured.length ? `${measured.reduce((sum, r) => sum + r.power, 0).toFixed(1)} W` : '--');
+        ['#metricPeakLoad', '#metricPowerLog', '#metricPowerToday', '#metricPowerWeek', '#metricPowerMonth', '#metricCarbonReduction'].forEach(selector => setText(selector, '--'));
+        const progress = document.getElementById('metricOutputProgress');
+        if (progress) progress.style.width = '0%';
+        return;
+      }
+      const activeRecords = records.filter(r => r.status === 'online' || r.status === 'warning');
+      const currentOutput = activeRecords.reduce((sum, r) => sum + r.power, 0);
+      const peakLoad = Math.max(currentOutput, ...powerLogEntries.map(e => e.power));
+      const totalGenerated = powerLogEntries.reduce((sum, e) => sum + e.power, 0);
+      setText('#metricCurrentOutput', `${currentOutput.toFixed(1)} kWh`);
+      setText('#metricPeakLoad', `${peakLoad.toFixed(1)} kWh`);
+      setText('#metricPowerLog', `${totalGenerated.toFixed(1)} kWh`);
+      setText('#metricPowerToday', `${totalGenerated.toFixed(1)}`);
+      setText('#metricPowerWeek', `${(totalGenerated * 6.2).toFixed(1)}`);
+      setText('#metricPowerMonth', `${(totalGenerated * 25.8).toLocaleString(undefined, { maximumFractionDigits: 1 })}`);
+      setText('#metricCarbonReduction', `${(totalGenerated * 0.018).toFixed(2)}`);
+      const progress = document.getElementById('metricOutputProgress');
+      if (progress) progress.style.width = `${Math.max(4, Math.min(100, currentOutput))}%`;
+    }
+
+    function setText(selector, value) {
+      const el = document.querySelector(selector);
+      if (el) el.textContent = value;
     }
 
     function toggleEnv() {
@@ -433,7 +734,7 @@
         .replace(/'/g, '&#039;');
     }
 
-    // ==================== ESP-NOW & 硬體直連通訊模組 ====================
+    // ==================== MQTT 網關與硬體直連通訊模組 ====================
 
     function updateBaseStationUI() {
       const now = Date.now();
@@ -441,7 +742,7 @@
       activePeerNodes.forEach((time, id) => {
         if (now - time < 15000) liveCount++;
       });
-      if (!isHardwareConnected) {
+      if (!isHardwareConnected && !hardwareSessionStarted) {
         liveCount = hexagons.filter(h => h.enabled).length || 8;
       }
 
@@ -462,6 +763,7 @@
     }
 
     function setHardwareConnected(connected, endpointLabel) {
+      if (connected) startHardwareSession();
       isHardwareConnected = connected;
       const badge = document.getElementById('baseConnBadge');
       const btnText = document.getElementById('btnSerialText');
@@ -470,6 +772,7 @@
       const netStatus = document.getElementById('netStatusText');
       const netMode = document.getElementById('netHardwareMode');
       const netModeDot = document.getElementById('netModeDot');
+      const netRxEl = document.getElementById('netRxPackets');
 
       if (connected) {
         if (badge) {
@@ -477,40 +780,86 @@
           badge.className = 'status-pill online';
           badge.style.cursor = 'pointer';
         }
-        if (btnText) btnText.textContent = '斷開 ESP32 (USB)';
-        if (endp) endp.textContent = endpointLabel || 'ESP32 Connected';
+        if (btnText) btnText.textContent = '斷開網關 (USB)';
+        if (endp) {
+          endp.dataset.endpointLabel = endpointLabel || 'ESP32 Connected';
+          endp.textContent = endp.dataset.endpointLabel;
+        }
         if (netDot) netDot.className = 'status-dot';
-        if (netStatus) netStatus.textContent = 'ESP-NOW Active (Live)';
+        if (netStatus) netStatus.textContent = 'Live gateway connected';
+        if (netRxEl) netRxEl.title = 'Live telemetry stream active';
         if (netModeDot) netModeDot.className = 'status-dot';
         if (netMode) {
-          netMode.textContent = 'Real Hardware Mode (ESP32)';
+          netMode.textContent = 'Real Hardware Mode';
           netMode.style.color = 'var(--accent-on)';
         }
       } else {
         if (badge) {
-          badge.textContent = '🟡 SIMULATION 模擬';
+          badge.textContent = hardwareSessionStarted ? '🟠 DISCONNECTED 已斷線' : '🟡 SIMULATION 模擬';
           badge.className = 'status-pill warning';
           badge.style.cursor = 'pointer';
         }
-        if (btnText) btnText.textContent = '連線 ESP32 (USB Serial)';
-        if (endp) endp.textContent = '未連接 (模擬模式運行中)';
-        if (netStatus) netStatus.textContent = 'Standby (Simulation)';
+        if (btnText) btnText.textContent = '連線網關 (USB Serial)';
+        if (endp) endp.textContent = hardwareSessionStarted ? '未連接 (保留最後實測資料)' : '未連接 (模擬模式運行中)';
+        if (netStatus) netStatus.textContent = hardwareSessionStarted ? 'Disconnected' : 'Standby (Simulation)';
+        if (netRxEl) netRxEl.title = 'Simulation data is active until hardware telemetry is connected';
         if (netModeDot) netModeDot.className = 'status-dot warn';
         if (netMode) {
-          netMode.textContent = 'Simulation Mode';
+          netMode.textContent = hardwareSessionStarted ? 'Hardware disconnected' : 'Simulation Mode';
           netMode.style.color = 'var(--accent-warning)';
         }
       }
       updateBaseStationUI();
     }
 
+    function markConnectionStale(reason = 'Telemetry timeout') {
+      if (!isHardwareConnected) return;
+      const badge = document.getElementById('baseConnBadge');
+      const netDot = document.getElementById('netStatusDot');
+      const netStatus = document.getElementById('netStatusText');
+      const netModeDot = document.getElementById('netModeDot');
+      const netMode = document.getElementById('netHardwareMode');
+      const endpoint = document.getElementById('baseEndpointLabel');
+      if (badge) {
+        badge.textContent = '🟠 STALE DATA 遙測逾時';
+        badge.className = 'status-pill stale';
+      }
+      if (netDot) netDot.className = 'status-dot warn';
+      if (netStatus) netStatus.textContent = reason;
+      if (netModeDot) netModeDot.className = 'status-dot warn';
+      if (netMode) {
+        netMode.textContent = 'Live link stale';
+        netMode.style.color = 'var(--accent-warning)';
+      }
+      if (endpoint && lastHardwarePacketTime) {
+        endpoint.textContent = `${endpoint.dataset.endpointLabel || 'ESP32 Connected'} · stale ${formatSecondsAgo(lastHardwarePacketTime)}`;
+      }
+    }
+
+    function startConnectionHealthMonitor() {
+      if (connectionHealthInterval) clearInterval(connectionHealthInterval);
+      connectionHealthInterval = setInterval(refreshHardwareHealth, 5000);
+    }
+
+    function refreshHardwareHealth() {
+      if (!hardwareSessionStarted) return;
+      if (isHardwareConnected && lastHardwarePacketTime && Date.now() - lastHardwarePacketTime > TELEMETRY_STALE_MS) {
+        markConnectionStale('No gateway packets received recently');
+      }
+      // Gateway heartbeats keep the link alive; each node ages independently.
+      buildDeviceTable();
+      updateStats();
+      updateBaseStationUI();
+      drawAll();
+    }
+
     function toggleBaseMode() {
       if (isHardwareConnected) {
-        if (confirm(consoleI18n.translate('是否中斷實體硬體連線並返回模擬模式？'))) {
+        if (confirm(window.consoleI18n?.translate('Disconnect hardware? The last real readings will be retained.') || 'Disconnect hardware? The last real readings will be retained.')) {
           if (serialPort) disconnectSerial();
           if (wsClient) disconnectWebSocket();
           setHardwareConnected(false);
-          showToast('已切換回模擬模式');
+          showToast('Hardware disconnected; last real readings retained.');
         }
       } else {
         handleConnectSerial();
@@ -518,125 +867,120 @@
     }
 
     function toggleBase(el) {
-      if (!checkPermission('control', 'ESP-NOW 基站連線')) return;
+      if (!checkPermission('control', '網關連線')) return;
       toggleBaseMode();
     }
 
     // ------------------- Web Serial API (USB 串列通訊) -------------------
     async function handleConnectSerial() {
-      if (!checkPermission('control', 'ESP-NOW 串列埠連線')) return;
-
-      if (serialPort) {
-        await disconnectSerial();
-        return;
-      }
-
+      if (!checkPermission('control', '網關串列埠連線') || serialConnecting) return;
+      if (serialPort) { await disconnectSerial(); return; }
       if (!('serial' in navigator)) {
-        openModal('⚠️ 不支援 Web Serial API', `
-      <div style="font-size:13px; color:var(--text-secondary); line-height:1.8">
-        您的瀏覽器尚未支援或未啟用 <b>Web Serial API</b>。<br><br>
-        • 建議使用電腦端 <b style="color:var(--accent-on)">Google Chrome</b> 或 <b style="color:var(--accent-on)">Microsoft Edge</b> 瀏覽器。<br>
-        • 若使用手機或 Firefox/Safari，請改用 <b>「📶 Wi-Fi 網關 (WebSocket)」</b> 連線方式。<br>
-        • 或點選下方「注入測試」以體驗 ESP-NOW 數據封包解析管線！
-      </div>
-    `, `<button class="toolbar-btn primary" onclick="injectTestHardwarePacket(); closeModal()">🧪 模擬硬體封包注入</button><button class="toolbar-btn" onclick="closeModal()">關閉</button>`);
+        showToast('USB Serial requires desktop Chrome/Edge on HTTPS or localhost. Use the local HTTP console with the Wi-Fi gateway otherwise.');
         return;
       }
-
+      serialConnecting = true;
+      let port = null;
       try {
-        const baudRate = parseInt(document.getElementById('cfgBaudRate')?.value || '115200');
-        showToast('請在瀏覽器彈出視窗選擇 ESP32 串列埠...');
-        serialPort = await navigator.serial.requestPort();
-        await serialPort.open({ baudRate: baudRate });
-
-        const textEncoder = new TextEncoderStream();
-        textEncoder.readable.pipeTo(serialPort.writable);
-        serialWriter = textEncoder.writable.getWriter();
-
-        setHardwareConnected(true, `USB Serial (${baudRate} baud)`);
-        showToast(`✓ 成功連線 ESP32 基站 (${baudRate} baud)！`);
-        appendTerminalLog('sys', `[SYS] Web Serial port opened successfully at ${baudRate} baud.`);
-
-        // 宣布連線並查詢基站 MAC
-        sendHardwareCommand({ cmd: "ping" });
-
+        const baudRate = parseInt(document.getElementById('cfgBaudRate')?.value || '115200', 10);
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate });
+        disconnectWebSocket();
+        serialPort = port;
+        serialWriter = port.writable.getWriter();
         serialKeepReading = true;
-        readSerialLoop();
-      } catch (err) {
-        console.error('Serial connect error:', err);
-        if (err.name !== 'NotFoundError') {
-          showToast('串列埠連線失敗: ' + err.message);
-          appendTerminalLog('err', `[ERR] Serial error: ${err.message}`);
+        serialReadTask = readSerialLoop(port);
+        lastHardwarePacketTime = Date.now();
+        setHardwareConnected(true, `USB Serial (${baudRate} baud)`);
+        appendTerminalLog('sys', `[SYS] Web Serial port opened at ${baudRate} baud.`);
+        await sendHardwareCommand({ cmd: 'ping' });
+      } catch (error) {
+        if (error.name !== 'NotFoundError') {
+          appendTerminalLog('err', `[ERR] Serial connection: ${error.message}`);
+          showToast('Serial connection failed: ' + error.message);
         }
-        serialPort = null;
-        serialWriter = null;
-      }
+        if (serialPort === port && port) await disconnectSerial();
+        else if (port) { try { await port.close(); } catch {} }
+      } finally { serialConnecting = false; }
     }
 
-    async function readSerialLoop() {
-      let partialBuffer = '';
-      while (serialPort && serialPort.readable && serialKeepReading) {
-        const textDecoder = new TextDecoderStream();
-        serialPort.readable.pipeTo(textDecoder.writable);
-        serialReader = textDecoder.readable.getReader();
-        try {
-          while (true) {
-            const { value, done } = await serialReader.read();
-            if (done) break;
-            if (value) {
-              partialBuffer += value;
-              const lines = partialBuffer.split(/\r?\n/);
-              partialBuffer = lines.pop(); // 保留未完整的尾巴
-              for (const line of lines) {
-                if (line.trim().length > 0) {
-                  parseHardwarePacket(line);
-                }
-              }
-            }
+    async function readSerialLoop(port) {
+      let reader = null;
+      const decoder = new TextDecoder();
+      let partial = '';
+      let discarding = false;
+      try {
+        reader = port.readable.getReader();
+        serialReader = reader;
+        while (serialKeepReading && serialPort === port) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          for (const character of decoder.decode(value, { stream: true })) {
+            if (discarding) { if (character === '\n') discarding = false; continue; }
+            if (character === '\n') {
+              if (partial.trim()) parseHardwarePacket(partial);
+              partial = '';
+            } else if (partial.length >= 4096) {
+              partial = '';
+              discarding = true;
+              appendTerminalLog('err', '[ERR] Oversized serial line discarded until newline.');
+            } else partial += character;
           }
-        } catch (error) {
-          console.warn('Serial reader error:', error);
-          appendTerminalLog('err', `[ERR] Read stream error: ${error.message}`);
-          break;
-        } finally {
-          serialReader.releaseLock();
+        }
+      } catch (error) {
+        if (serialKeepReading) appendTerminalLog('err', `[ERR] Serial read: ${error.message}`);
+      } finally {
+        if (reader) reader.releaseLock();
+        if (serialReader === reader) serialReader = null;
+        if (serialPort === port && serialKeepReading) {
+          serialKeepReading = false;
+          if (serialWriter) { try { serialWriter.releaseLock(); } catch {} }
+          serialWriter = null;
+          serialPort = null;
+          try { await port.close(); } catch {}
+          setHardwareConnected(false);
+          appendTerminalLog('err', '[ERR] Serial stream ended; reconnect the gateway.');
         }
       }
     }
 
     async function disconnectSerial() {
+      const port = serialPort;
       serialKeepReading = false;
-      if (serialReader) {
-        try { await serialReader.cancel(); } catch (e) { }
-      }
+      if (serialReader) { try { await serialReader.cancel(); } catch {} }
+      if (serialReadTask) { try { await serialReadTask; } catch {} }
+      serialReadTask = null;
       if (serialWriter) {
-        try { await serialWriter.close(); } catch (e) { }
+        try { await serialWriter.close(); } catch {}
+        try { serialWriter.releaseLock(); } catch {}
       }
-      if (serialPort) {
-        try { await serialPort.close(); } catch (e) { }
-      }
-      serialPort = null;
-      serialReader = null;
       serialWriter = null;
+      serialReader = null;
+      serialPort = null;
+      if (port) { try { await port.close(); } catch (error) { appendTerminalLog('err', `[ERR] Serial close: ${error.message}`); } }
       setHardwareConnected(false);
-      showToast('ESP32 串列埠已安全中斷');
       appendTerminalLog('sys', '[SYS] USB Serial port disconnected.');
     }
 
     // ------------------- WebSocket (Wi-Fi 網關) -------------------
     function openWsConnectModal() {
-      const currentWs = document.getElementById('cfgWsUrl')?.value || 'ws://192.168.4.1:81';
+      const currentWs = document.getElementById('cfgWsUrl')?.value || 'ws://127.0.0.1:8081';
       const html = `
     <div style="font-size:13px; color:var(--text-secondary); line-height:1.8">
-      <p style="margin-bottom:12px">透過 Wi-Fi 無線連接 ESP32 網關中繼基站 (ESP32 AP 預設 IP: 192.168.4.1)</p>
+      <p style="margin-bottom:12px">連接 UNO R4 AP 的 MQTT 中繼服務或舊版 ESP32 WebSocket 網關。</p>
       <div class="settings-group">
         <label class="settings-label">WebSocket URL</label>
         <input class="settings-input" id="modalWsUrlInput" value="${currentWs}">
       </div>
       <div style="font-size:11px; color:var(--text-muted); background:rgba(0,229,200,0.05); padding:10px; border-radius:4px; border:1px solid rgba(0,229,200,0.2)">
         💡 <b>連線提示：</b><br>
-        1. 請先確保電腦/手機 Wi-Fi 已連接至 ESP32 基地台熱點：<b style="color:var(--accent-on)">HexagonSolar-BaseGateway</b> (密碼: <span style="font-family:var(--font-tech)">hexagonsolar888</span>)<br>
-        2. 若 ESP32 與電腦在同一個局域網路，請填入 ESP32 的區域 IP 位址 (例如 <code>ws://192.168.1.150:81</code>)。
+        <p>UNO R4 AP / MQTT：電腦與 XIAO 節點連接 HexagonSolar-UNO-R4 熱點；電腦固定 IP 為 192.168.4.250，啟動 Mosquitto 及中繼服務。</p>
+        <code data-no-i18n>ws://127.0.0.1:8081</code>
+        <p>其他裝置需連接 UNO 熱點，並使用電腦的中繼位址。</p>
+        <code data-no-i18n>ws://192.168.4.250:8081</code>
+        <p>舊版 ESP-NOW：連接 ESP32 的 HexagonSolar-BaseGateway 熱點，再輸入網關位址。</p>
+        <code data-no-i18n>ws://192.168.4.1:81</code>
+        <p>HTTPS 頁面需要安全的 wss:// 中繼或 USB Serial；本機 HTTP 可使用 ws://。</p>
       </div>
     </div>
   `;
@@ -644,7 +988,7 @@
     <button class="toolbar-btn" onclick="closeModal()">取消</button>
     <button class="toolbar-btn primary" onclick="confirmConnectWebSocket()">連線 Wi-Fi 網關</button>
   `;
-      openModal('📶 連線 ESP32 Wi-Fi 網關', html, footer);
+      openModal('📶 連線 Wi-Fi 網關', html, footer);
     }
 
     function confirmConnectWebSocket() {
@@ -654,53 +998,95 @@
       connectWebSocket(url);
     }
 
-    function connectWebSocket(url) {
-      if (wsClient) {
-        wsClient.close();
-        wsClient = null;
+    async function connectWebSocket(url, reconnect = false) {
+      const generation = ++wsConnectGeneration;
+      if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+      if (!reconnect) wsReconnectAttempts = 0;
+      wsLastUrl = url;
+      wsShouldReconnect = true;
+      if (serialPort) await disconnectSerial();
+      if (generation !== wsConnectGeneration) return;
+      const previous = wsClient;
+      wsClient = null;
+      previous?.close();
+      if (location.protocol === 'https:' && url.startsWith('ws:')) {
+        wsShouldReconnect = false;
+        showToast('HTTPS cannot connect to an insecure ws:// gateway. Open this console via local HTTP for Wi-Fi, or use USB Serial on HTTPS.');
+        return;
       }
-      showToast('連線中: ' + url);
       appendTerminalLog('sys', `[SYS] Connecting WebSocket to ${url}...`);
-
       try {
-        wsClient = new WebSocket(url);
-        wsClient.onopen = () => {
+        const socket = new WebSocket(url);
+        wsClient = socket;
+        socket.onopen = () => {
+          if (wsClient !== socket) return;
+          wsReconnectAttempts = 0;
+          lastHardwarePacketTime = Date.now();
           setHardwareConnected(true, `Wi-Fi (${url})`);
-          showToast('✓ 成功連線 ESP32 Wi-Fi 網關！');
-          appendTerminalLog('sys', `[SYS] WebSocket connected successfully.`);
-          sendHardwareCommand({ cmd: "ping" });
+          appendTerminalLog('sys', '[SYS] WebSocket connected.');
+          sendHardwareCommand({ cmd: 'ping' });
         };
-        wsClient.onmessage = (evt) => {
-          if (evt.data) {
-            parseHardwarePacket(evt.data);
+        socket.onmessage = event => {
+          if (wsClient !== socket || typeof event.data !== 'string') return;
+          if (event.data.length > 65536) {
+            appendTerminalLog('err', '[ERR] Oversized WebSocket message discarded.');
+            return;
           }
+          event.data.split(/\r?\n/).filter(line => line.trim()).forEach(line => {
+            if (line.length > 4096) appendTerminalLog('err', '[ERR] Oversized WebSocket line discarded.');
+            else parseHardwarePacket(line);
+          });
         };
-        wsClient.onerror = (err) => {
-          appendTerminalLog('err', `[ERR] WebSocket error: ${url}`);
-          showToast('WebSocket 連線異常');
+        socket.onerror = () => {
+          if (wsClient === socket) appendTerminalLog('err', `[ERR] WebSocket error: ${url}`);
         };
-        wsClient.onclose = () => {
-          appendTerminalLog('sys', `[SYS] WebSocket connection closed.`);
-          if (isHardwareConnected && !serialPort) {
-            setHardwareConnected(false);
-          }
+        socket.onclose = () => {
+          if (wsClient !== socket) return;
+          wsClient = null;
+          setHardwareConnected(false);
+          appendTerminalLog('sys', '[SYS] WebSocket connection closed.');
+          if (wsShouldReconnect && !serialPort) scheduleWebSocketReconnect();
         };
-      } catch (e) {
-        showToast('連線錯誤: ' + e.message);
+      } catch (error) {
+        appendTerminalLog('err', `[ERR] WebSocket connection: ${error.message}`);
+        scheduleWebSocketReconnect();
       }
+    }
+
+    function scheduleWebSocketReconnect() {
+      if (!wsShouldReconnect || !wsLastUrl || wsReconnectTimer) return;
+      if (wsReconnectAttempts >= MAX_WS_RECONNECT_ATTEMPTS) {
+        appendTerminalLog('err', '[ERR] Automatic reconnect exhausted; check the gateway Wi-Fi.');
+        return;
+      }
+      const delay = Math.min(30000, 1500 * ++wsReconnectAttempts);
+      wsReconnectTimer = setTimeout(() => {
+        wsReconnectTimer = null;
+        connectWebSocket(wsLastUrl, true);
+      }, delay);
     }
 
     function disconnectWebSocket() {
-      if (wsClient) {
-        wsClient.close();
-        wsClient = null;
-      }
-      setHardwareConnected(false);
+      wsConnectGeneration++;
+      wsShouldReconnect = false;
+      if (wsReconnectTimer) { clearTimeout(wsReconnectTimer); wsReconnectTimer = null; }
+      const socket = wsClient;
+      wsClient = null;
+      socket?.close();
+      if (!serialPort) setHardwareConnected(false);
       appendTerminalLog('sys', '[SYS] WebSocket disconnected.');
     }
 
-    // ------------------- 指令發送 (Web -> ESP32 -> ESP-NOW) -------------------
+    // ------------------- 指令發送 (Web -> gateway -> MQTT nodes) -------------------
     async function sendHardwareCommand(cmdObj) {
+      if (hardwareSessionStarted && (cmdObj.cmd === 'set_power' || cmdObj.cmd === 'all_power')) {
+        const targets = cmdObj.cmd === 'set_power' ? [deviceTelemetry.get(cmdObj.id)] : getDeviceRecords();
+        if (!targets.length || targets.some(record => !record?.powerControlAvailable || isRecordStale(record))) {
+          showToast('Power control unavailable: configure a relay output in the node firmware first.');
+          appendTerminalLog('err', '[ERR] Power command blocked: no confirmed relay output or stale node.');
+          return false;
+        }
+      }
       const line = JSON.stringify(cmdObj) + "\n";
       hardwareTxCount++;
       updateBaseStationUI();
@@ -709,24 +1095,30 @@
 
       if (serialWriter) {
         try {
-          await serialWriter.write(line);
+          await serialWriter.write(new TextEncoder().encode(line));
+          return true;
         } catch (e) {
           console.warn('Serial write error:', e);
           appendTerminalLog('err', `Serial Write Err: ${e.message}`);
         }
       }
 
-      if (wsClient && wsClient.readyState === WebSocket.OPEN) {
+      else if (wsClient && wsClient.readyState === WebSocket.OPEN) {
         try {
           wsClient.send(line);
+          return true;
         } catch (e) {
           console.warn('WebSocket send error:', e);
           appendTerminalLog('err', `WebSocket Send Err: ${e.message}`);
         }
       }
+      if (!serialWriter && (!wsClient || wsClient.readyState !== WebSocket.OPEN)) {
+        appendTerminalLog('sys', '[SYS] Command recorded locally. No live hardware transport is connected.');
+      }
+      return false;
     }
 
-    // ------------------- 遙測封包解析 (ESP-NOW -> ESP32 -> Web) -------------------
+    // ------------------- 遙測封包解析 (MQTT nodes -> gateway -> Web) -------------------
     function parseHardwarePacket(rawLine) {
       rawLine = rawLine.trim();
       if (!rawLine) return;
@@ -735,24 +1127,69 @@
 
       try {
         const data = JSON.parse(rawLine);
+        if (!data || typeof data !== 'object' || typeof data.type !== 'string') return;
+        if (data.type === 'telemetry' && (!Number.isInteger(data.id) || data.id < 1 || data.id > 255)) {
+          appendTerminalLog('err', '[ERR] Ignored telemetry with invalid node ID.');
+          return;
+        }
         hardwareRxCount++;
         lastHardwarePacketTime = Date.now();
+        if (isHardwareConnected && document.getElementById('baseConnBadge')?.classList.contains('stale')) {
+          setHardwareConnected(true, document.getElementById('baseEndpointLabel')?.dataset.endpointLabel);
+        }
 
         if (!isHardwareConnected) {
-          setHardwareConnected(true, 'ESP-NOW Gateway (Active Stream)');
+          setHardwareConnected(true, 'Gateway (Active Stream)');
         }
 
         if (data.type === 'telemetry') {
           let hex = hexagons.find(h => h.id === data.id);
+          const hallMask = Number.isInteger(data.hall_mask) && data.hall_mask >= 0 && data.hall_mask <= 63 ? data.hall_mask : null;
+          const telemetry = updateTelemetryRecord(data.id, {
+            q: data.q,
+            r: data.r,
+            voltage: data.voltage,
+            current: data.current,
+            power: data.power,
+            temp: data.temp,
+            signal: data.rssi,
+            enabled: data.enabled !== undefined ? data.enabled : true,
+            mac: data.mac,
+            status: data.status,
+            hallMask,
+            halls: hallMask === null ? null : Array.from({ length: 6 }, (_, i) => Boolean(hallMask & (1 << i))),
+            configBits: Number.isInteger(data.config_bits) && data.config_bits >= 0 && data.config_bits <= 7 ? data.config_bits : null,
+            powerControlAvailable: data.power_control_available === true,
+            uptime: data.uptime,
+            sequence: data.seq,
+            bootId: data.boot_id
+          }, TELEMETRY_SOURCE_LIVE);
+          // A missing Hall payload must not retain an earlier measurement.
+          telemetry.hallMask = hallMask;
+          telemetry.halls = hallMask === null ? null : Array.from({ length: 6 }, (_, i) => Boolean(hallMask & (1 << i)));
+          telemetry.configBits = Number.isInteger(data.config_bits) ? data.config_bits : null;
+          if (!deviceIds.includes(data.id)) {
+            deviceIds.push(data.id);
+            deviceIds.sort((a, b) => a - b);
+            deviceCount = deviceIds.length;
+          }
+          if (!hex) {
+            const size = Math.min(canvasWidth, canvasHeight) * 0.09 * currentZoom;
+            hex = new Hexagon(data.id, numberOr(telemetry.q, 0), numberOr(telemetry.r, 0), size);
+            hexagons.push(hex);
+          }
           if (hex) {
-            if (data.power !== undefined) hex.power = parseFloat(data.power).toFixed(1);
-            if (data.temp !== undefined) hex.temp = parseFloat(data.temp).toFixed(1);
-            if (data.voltage !== undefined) hex.voltage = parseFloat(data.voltage).toFixed(2);
-            if (data.current !== undefined) hex.current = parseFloat(data.current).toFixed(2);
-            if (data.enabled !== undefined) hex.enabled = !!data.enabled;
-            if (data.rssi !== undefined) hex.signal = parseInt(data.rssi);
+            hex.power = telemetry.power.toFixed(1);
+            hex.temp = telemetry.temp.toFixed(1);
+            hex.voltage = telemetry.voltage.toFixed(2);
+            hex.current = telemetry.current.toFixed(2);
+            hex.enabled = telemetry.enabled;
+            hex.signal = parseInt(telemetry.signal);
+            hex.q = numberOr(telemetry.q, hex.q);
+            hex.r = numberOr(telemetry.r, hex.r);
           }
           activePeerNodes.set(data.id, Date.now());
+          appendPowerLog(telemetry);
 
           // 警報檢測 (過溫 / 電壓異常)
           if (data.temp && data.temp > 60.0) {
@@ -761,12 +1198,14 @@
             triggerHardwareAlert('warning', `模組 HEX-${String(data.id).padStart(2, '0')} 輸出電壓異常: ${data.voltage}V (標準 12.0V)`, `HEX-${String(data.id).padStart(2, '0')}`);
           }
 
+          zoomHex(0);
           updateStats();
           drawAll();
           buildDeviceTable();
+          buildPowerLog();
         } else if (data.type === 'heartbeat') {
           if (data.uptime !== undefined) baseStationUptime = data.uptime;
-          if (data.last_rx_ago_ms !== undefined) baseStationLatency = data.last_rx_ago_ms + 'ms';
+          if (data.last_rx_ago_ms !== undefined) baseStationLatency = data.last_rx_ago_ms === null ? '--' : data.last_rx_ago_ms + 'ms';
         } else if (data.type === 'ready' || data.type === 'pong') {
           if (data.mac) {
             const macEl = document.getElementById('baseMacDisplay');
@@ -774,9 +1213,15 @@
             const relayEl = document.getElementById('netRelayNode');
             if (relayEl) relayEl.textContent = data.mac.slice(-8);
           }
-          showToast(`✓ ESP-NOW 基站已應答 [${data.type.toUpperCase()}]`);
+          showToast(`✓ Gateway responded [${data.type.toUpperCase()}]`);
         } else if (data.type === 'tx_ack') {
-          appendTerminalLog('sys', `[ACK] Command sent to target node #${data.target} (Success: ${data.success})`);
+          appendTerminalLog(data.success ? 'sys' : 'err', `[ACK] Node #${data.target}: ${data.stage || 'acknowledged'}; success=${data.success}${data.msg || data.reason ? ': ' + (data.msg || data.reason) : ''}`);
+          if (!data.success) showToast(`Command failed for node #${data.target}: ${data.msg || data.reason || data.stage || 'not acknowledged'}`);
+        } else if (data.type === 'tx_pending') {
+          appendTerminalLog('sys', `[PENDING] Node #${data.target}: ${data.cmd}; waiting for application acknowledgement.`);
+        } else if (data.type === 'cmd_error' || data.type === 'error') {
+          appendTerminalLog('err', `[ERR] ${data.msg || data.error || data.code || 'Gateway rejected the command'}`);
+          showToast(data.msg || data.error || 'Gateway error');
         }
         updateBaseStationUI();
       } catch (err) {
@@ -799,7 +1244,7 @@
     <div class="alert-left">
       <div class="alert-dot"></div>
       <div>
-        <div class="alert-device">[${deviceId}] ESP-NOW 遙測告警</div>
+        <div class="alert-device">[${deviceId}] 網關遙測告警</div>
         <div class="alert-msg">${escapeHtml(msg)}</div>
       </div>
     </div>
@@ -813,6 +1258,10 @@
 
     // ------------------- 測試注入 -------------------
     function injectTestHardwarePacket() {
+      if (hardwareSessionStarted) {
+        showToast('Test injection is disabled in a hardware session. Reload the page for a separate demo.');
+        return;
+      }
       const randomNodeId = Math.floor(Math.random() * 8) + 1;
       const volt = (11.85 + Math.random() * 0.5).toFixed(2);
       const cur = (1.1 + Math.random() * 0.4).toFixed(2);
@@ -836,7 +1285,7 @@
       });
 
       parseHardwarePacket(demoPacket);
-      showToast(`🧪 已注入 HEX-0${randomNodeId} 真實 ESP-NOW 封包 (電壓: ${volt}V, 溫度: ${temp}°C)`);
+      showToast(`🧪 已注入 HEX-0${randomNodeId} 模擬測試封包 (電壓: ${volt}V, 溫度: ${temp}°C)`);
     }
 
     // ------------------- 數據終端機 (Serial Terminal) -------------------
@@ -875,11 +1324,11 @@
       const html = `
     <div style="display:flex; flex-direction:column; gap:10px">
       <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; color:var(--text-secondary)">
-        <span>ESP-NOW 實體通訊數據流監視器 (Web Serial / WebSocket Stream)</span>
+        <span>硬體通訊資料監視器 (Web Serial / WebSocket)</span>
         <span style="color:${isHardwareConnected ? 'var(--accent-on)' : 'var(--accent-warning)'}">${isHardwareConnected ? '● 硬體連線中' : '○ 模擬模式中'}</span>
       </div>
       <div class="serial-terminal" id="terminalOutputBox">
-        ${rows || '<div style="color:var(--text-muted); text-align:center; padding:20px">暫無通訊紀錄。請連線實體 ESP32 或點擊「注入測試」。</div>'}
+        ${rows || '<div style="color:var(--text-muted); text-align:center; padding:20px">暫無通訊紀錄。請連線網關或點擊「注入測試」。</div>'}
       </div>
       <div style="display:flex; gap:8px">
         <input type="text" id="terminalCmdInput" class="settings-input" placeholder='輸入 JSON 指令，例如: {"cmd":"ping"} 或 {"cmd":"set_power","id":1,"enabled":true}' onkeydown="if(event.key==='Enter')sendTerminalInput()">
@@ -892,7 +1341,7 @@
     <button class="toolbar-btn" onclick="clearTerminalLogs()">🗑 清除日誌</button>
     <button class="toolbar-btn" onclick="closeModal()">關閉</button>
   `;
-      openModal('📟 ESP-NOW 通訊終端機 (Packet Monitor)', html, footer);
+      openModal('📟 網關通訊終端機 (Packet Monitor)', html, footer);
 
       setTimeout(() => {
         const box = document.getElementById('terminalOutputBox');
@@ -900,188 +1349,120 @@
       }, 50);
     }
 
-    function sendTerminalInput() {
+    async function sendTerminalInput() {
       const input = document.getElementById('terminalCmdInput');
       if (!input) return;
       const val = input.value.trim();
       if (!val) return;
       try {
         const obj = JSON.parse(val);
-        sendHardwareCommand(obj);
-        input.value = '';
-        showToast('✓ 指令已發送');
+        if (await sendHardwareCommand(obj)) {
+          input.value = '';
+          showToast('Command sent; awaiting gateway acknowledgement.');
+        }
       } catch (e) {
-        sendHardwareCommand({ cmd: "raw", data: val });
-        input.value = '';
+        showToast('Enter a valid JSON command.');
       }
     }
 
     // ------------------- ESP32 韌體程式碼檢視與下載 -------------------
-    const ESP32_FIRMWARE_SOURCE = {
-      gateway: `// [ESP32 接收中繼基站韌體 - Base Station Gateway]
-// 檔案: firmware/esp32_base_station_gateway/esp32_base_station_gateway.ino
-#include <WiFi.h>
-#include <esp_now.h>
-
-typedef struct __attribute__((packed)) {
-  uint8_t nodeId;
-  int8_t  q, r;
-  float   voltage, current, power, temperature;
-  bool    enabled;
-  uint32_t uptimeSec;
-} SolarTelemetryPacket;
-
-typedef struct __attribute__((packed)) {
-  uint8_t targetId;
-  uint8_t command;
-  uint8_t param;
-} SolarControlPacket;
-
-uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-
-void OnDataRecv(const esp_now_recv_info *info, const uint8_t *data, int len) {
-  if (len < sizeof(SolarTelemetryPacket)) return;
-  SolarTelemetryPacket p;
-  memcpy(&p, data, sizeof(p));
-  
-  // 輸出 JSON 給 Web Serial API
-  Serial.printf("{\\"type\\":\\"telemetry\\",\\"id\\":%d,\\"q\\":%d,\\"r\\":%d,\\"voltage\\":%.2f,\\"current\\":%.2f,\\"power\\":%.2f,\\"temp\\":%.1f,\\"enabled\\":%s}\\n",
-    p.nodeId, p.q, p.r, p.voltage, p.current, p.power, p.temperature, p.enabled ? "true":"false");
-}
-
-void setup() {
-  Serial.begin(115200);
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP("HexagonSolar-BaseGateway", "hexagonsolar888");
-  esp_now_init();
-  esp_now_register_recv_cb(OnDataRecv);
-  esp_now_peer_info_t peerInfo = {};
-  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
-  esp_now_add_peer(&peerInfo);
-  Serial.println("{\\"type\\":\\"ready\\",\\"msg\\":\\"Gateway Listening\\"}");
-}
-
-void loop() {
-  if (Serial.available()) {
-    String str = Serial.readStringUntil('\\n');
-    // 解析下行指令並轉發 ESP-NOW
-  }
-}`,
-      node: `// [ESP32 水面浮動太陽能節點韌體 - Solar Node]
-// 檔案: firmware/esp32_solar_node/esp32_solar_node.ino
-#include <WiFi.h>
-#include <esp_now.h>
-
-#define MODULE_ID       1
-#define PIN_VOLTAGE_ADC 34
-#define PIN_RELAY       26
-
-typedef struct __attribute__((packed)) {
-  uint8_t nodeId;
-  int8_t  q, r;
-  float   voltage, current, power, temperature;
-  bool    enabled;
-  uint32_t uptimeSec;
-} SolarTelemetryPacket;
-
-uint8_t baseMac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-bool isEnabled = true;
-
-void sendTelemetry() {
-  SolarTelemetryPacket p;
-  p.nodeId = MODULE_ID;
-  p.voltage = 12.0 + ((float)(millis()%100)/500.0);
-  p.current = isEnabled ? 1.4 : 0.0;
-  p.power = isEnabled ? 6.5 : 0.0;
-  p.temperature = 34.2;
-  p.enabled = isEnabled;
-  esp_now_send(baseMac, (uint8_t*)&p, sizeof(p));
-}
-
-void setup() {
-  Serial.begin(115200);
-  pinMode(PIN_RELAY, OUTPUT);
-  WiFi.mode(WIFI_STA);
-  esp_now_init();
-  esp_now_peer_info_t peer = {};
-  memcpy(peer.peer_addr, baseMac, 6);
-  esp_now_add_peer(&peer);
-}
-
-void loop() {
-  sendTelemetry();
-  delay(2500);
-}`,
-      guide: `# ESP32 & ESP-NOW 硬體接線與燒錄指南
-1. 使用 Arduino IDE 安裝 ESP32 開發板支援 (版本 2.0.x / 3.0.x)。
-2. 將「基站 ESP32」連接電腦 USB，開啟 esp32_base_station_gateway.ino 並燒錄。
-3. 將「水面六角模組 ESP32」連接電腦 USB，依模組編號修改 MODULE_ID 後燒錄。
-4. 接線說明:
-   - 太陽能 18V 面板 -> LM2596 Buck 降壓穩壓至 12V 輸出
-   - 12V 電壓取樣: 100kΩ / 10kΩ 分壓電阻 -> GPIO 34
-   - 12V 輸出開關: GPIO 26 -> N-MOSFET Gate
-5. 開啟本控制台，點擊「🔌 連線 ESP32 (USB Serial)」，即可直連即時監控！`
+    const FIRMWARE_FILES = {
+      unoGateway: { path: 'firmware/uno_r4_mqtt_gateway/uno_r4_mqtt_gateway.ino', label: 'UNO R4 MQTT .ino' },
+      mqttNode: { path: 'firmware/esp32_mqtt_solar_node/esp32_mqtt_solar_node.ino', label: 'ESP32 MQTT Node .ino' },
+      mqttSettings: { path: 'firmware/uno_r4_mqtt_gateway/MqttSettings.h', label: 'MQTT MqttSettings.h' },
+      mqttSupport: { path: 'firmware/uno_r4_mqtt_gateway/MqttSupport.h', label: 'MQTT MqttSupport.h' },
+      mqttSecrets: { path: 'firmware/uno_r4_mqtt_gateway/Secrets.example.h', label: 'MQTT Secrets.example.h' },
+      apConfig: { path: 'firmware/uno_r4_mqtt_gateway/AccessPointConfig.h', label: 'AccessPointConfig.h' },
+      apSecrets: { path: 'firmware/uno_r4_mqtt_gateway/AccessPointSecrets.example.h', label: 'AccessPointSecrets.example.h' },
+      unoAccessPoint: { path: 'firmware/uno_r4_mqtt_gateway/UnoAccessPoint.h', label: 'UnoAccessPoint.h' },
+      mqttNodeConfig: { path: 'firmware/esp32_mqtt_solar_node/NodeConfig.h', label: 'MQTT NodeConfig.h' },
+      mqttGuide: { path: 'firmware/MQTT.md', label: 'UNO R4 / MQTT setup' },
+      gateway: { path: 'firmware/esp32_base_station_gateway/esp32_base_station_gateway.ino', label: 'Legacy gateway .ino' },
+      gatewayConfig: { path: 'firmware/esp32_base_station_gateway/GatewayConfig.h', label: 'GatewayConfig.h' },
+      gatewayProtocol: { path: 'firmware/esp32_base_station_gateway/SolarProtocol.h', label: 'Gateway SolarProtocol.h' },
+      node: { path: 'firmware/esp32_solar_node/esp32_solar_node.ino', label: 'Legacy node .ino' },
+      nodeConfig: { path: 'firmware/esp32_solar_node/NodeConfig.h', label: 'NodeConfig.h' },
+      nodeProtocol: { path: 'firmware/esp32_solar_node/SolarProtocol.h', label: 'Node SolarProtocol.h' },
+      guide: { path: 'firmware/README.md', label: 'README / Wiring' }
     };
-
+    const firmwareSourceCache = new Map();
     let currentFirmwareTab = 'gateway';
 
-    function openFirmwareModal() {
-      currentFirmwareTab = 'gateway';
-      const html = `
-    <div style="font-size:13px; color:var(--text-secondary)">
-      <div class="firmware-tab-nav">
-        <button class="firmware-tab-btn active" id="fwTab-gateway" onclick="switchFirmwareTab('gateway')">🏠 基站韌體 (Gateway .ino)</button>
-        <button class="firmware-tab-btn" id="fwTab-node" onclick="switchFirmwareTab('node')">⬢ 水面模組 (Solar Node .ino)</button>
-        <button class="firmware-tab-btn" id="fwTab-guide" onclick="switchFirmwareTab('guide')">📖 接線與燒錄說明 (Guide)</button>
-      </div>
-      <div class="code-preview-box" id="firmwareCodeView">${escapeHtml(ESP32_FIRMWARE_SOURCE.gateway)}</div>
-      <div style="margin-top:10px; font-size:11px; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center">
-        <span>原始碼已同步存於專案 <code>firmware/</code> 資料夾中</span>
-        <span style="color:var(--accent-on)">支援晶片: ESP32 / ESP32-S3 / ESP32-C3</span>
-      </div>
-    </div>
-  `;
-      const footer = `
-    <button class="toolbar-btn" onclick="downloadFirmwareFile()">💾 下載程式碼檔案</button>
-    <button class="toolbar-btn primary" onclick="copyFirmwareCode()">📋 複製程式碼</button>
-    <button class="toolbar-btn" onclick="closeModal()">關閉</button>
-  `;
-      openModal('📥 ESP32 / ESP-NOW 韌體程式碼與接線指南', html, footer);
+    async function loadFirmwareSource(tab) {
+      if (firmwareSourceCache.has(tab)) return firmwareSourceCache.get(tab);
+      const file = FIRMWARE_FILES[tab];
+      if (!file) throw new Error('Unknown firmware file');
+      const response = await fetch(file.path, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const content = await response.text();
+      if (/^\s*<!doctype html/i.test(content)) throw new Error('Firmware source was not served');
+      firmwareSourceCache.set(tab, content);
+      return content;
     }
 
-    function switchFirmwareTab(tab) {
+    function openFirmwareModal() {
+      const html = `
+    <div style="font-size:13px; color:var(--text-secondary)">
+      <div class="firmware-tab-nav" style="flex-wrap:wrap">
+        ${Object.entries(FIRMWARE_FILES).map(([key, file]) => `<button class="firmware-tab-btn" id="fwTab-${key}" onclick="switchFirmwareTab('${key}')">${file.label}</button>`).join('')}
+      </div>
+      <p id="firmwareLoadStatus" role="status">Loading repository firmware...</p>
+      <div class="code-preview-box" id="firmwareCodeView" data-no-i18n></div>
+      <p style="margin-top:10px">MQTT：每個程式資料夾保留 MqttSettings.h、MqttSupport.h、Secrets.example.h、AccessPointConfig.h 及 AccessPointSecrets.example.h；UNO 另需 UnoAccessPoint.h，節點另需 NodeConfig.h。先閱讀 MQTT 設定指南，確認板型及接腳再上傳。</p>
+      <p id="firmwareSourceLink" style="margin-top:8px"></p>
+    </div>`;
+      const footer = `<button class="toolbar-btn" onclick="downloadFirmwareFile()">Download file</button><button class="toolbar-btn primary" onclick="copyFirmwareCode()">Copy source</button><button class="toolbar-btn" onclick="closeModal()">Close</button>`;
+      openModal('UNO R4 / ESP32 firmware and wiring', html, footer);
+      switchFirmwareTab('unoGateway');
+    }
+
+    async function switchFirmwareTab(tab) {
+      if (!FIRMWARE_FILES[tab]) return;
       currentFirmwareTab = tab;
       document.querySelectorAll('.firmware-tab-btn').forEach(b => b.classList.remove('active'));
-      const activeBtn = document.getElementById(`fwTab-${tab}`);
-      if (activeBtn) activeBtn.classList.add('active');
+      document.getElementById(`fwTab-${tab}`)?.classList.add('active');
       const codeBox = document.getElementById('firmwareCodeView');
-      if (codeBox) {
-        codeBox.textContent = ESP32_FIRMWARE_SOURCE[tab] || '';
+      if (codeBox) codeBox.textContent = '';
+      const status = document.getElementById('firmwareLoadStatus');
+      if (status) { status.hidden = false; status.textContent = 'Loading repository firmware...'; }
+      const link = document.getElementById('firmwareSourceLink');
+      if (link) link.innerHTML = `<a href="${FIRMWARE_FILES[tab].path}" download style="color:var(--accent-on)">${FIRMWARE_FILES[tab].path}</a>`;
+      try {
+        const content = await loadFirmwareSource(tab);
+        if (codeBox && currentFirmwareTab === tab) {
+          codeBox.textContent = content;
+          if (status) status.hidden = true;
+        }
+      } catch (error) {
+        if (status?.isConnected && currentFirmwareTab === tab) status.textContent = `Could not load source (${error.message}). Open the firmware/ folder locally, or serve this console over HTTP/HTTPS. The file link above opens the actual source.`;
       }
     }
 
-    function copyFirmwareCode() {
-      const code = consoleI18n.firmware(ESP32_FIRMWARE_SOURCE[currentFirmwareTab] || '', currentFirmwareTab);
-      navigator.clipboard.writeText(code).then(() => {
-        showToast('✓ 韌體程式碼已複製至剪貼簿！');
-      }).catch(() => {
-        showToast('複製失敗，請手動全選複製');
-      });
+    async function copyFirmwareCode() {
+      try {
+        const content = await loadFirmwareSource(currentFirmwareTab);
+        await navigator.clipboard.writeText(content);
+        showToast('Firmware source copied.');
+      } catch (error) {
+        showToast('Cannot copy source: ' + error.message);
+      }
     }
 
-    function downloadFirmwareFile() {
-      const content = consoleI18n.firmware(ESP32_FIRMWARE_SOURCE[currentFirmwareTab] || '', currentFirmwareTab);
-      const filename = currentFirmwareTab === 'gateway' ? 'esp32_base_station_gateway.ino'
-        : currentFirmwareTab === 'node' ? 'esp32_solar_node.ino'
-          : 'README.md';
-      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
-      showToast(`✓ 已下載檔案: ${filename}`);
+    async function downloadFirmwareFile() {
+      const tab = currentFirmwareTab;
+      try {
+        const content = await loadFirmwareSource(tab);
+        const filename = FIRMWARE_FILES[tab].path.split('/').pop();
+        const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        showToast(`Downloaded: ${filename}`);
+      } catch (error) {
+        showToast('Cannot download source: ' + error.message + '. Use the source link.');
+      }
     }
 
     function showToast(msg) {
@@ -1100,10 +1481,10 @@ void loop() {
         systemName: '水面智慧浮動太陽能發電系統 - Macau Reservoir Unit 1',
         adminEmail: 'admin@hexagon-solar.mo',
         timezone: 'UTC+08:00 Macau Standard Time',
-        protocol: 'ESP-NOW 2.0 (IEEE 802.11 LR)',
+        protocol: 'UNO R4 AP / MQTT (HexagonSolar/1)',
         baseMac: '24:6F:28:AA:BB:00',
         baudRate: '115200',
-        wsUrl: 'ws://192.168.4.1:81',
+        wsUrl: 'ws://127.0.0.1:8081',
         emailNotifications: true,
         webPush: true,
         dailySummary: true,
@@ -1113,7 +1494,9 @@ void loop() {
 
     function loadConsoleSettings() {
       try {
-        return Object.assign(getDefaultSettings(), JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}'));
+        const settings = Object.assign(getDefaultSettings(), JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}'));
+        if (['ESP-NOW 2.0 (IEEE 802.11 LR)', 'Wi-Fi/MQTT (UNO R4 gateway)'].includes(settings.protocol)) settings.protocol = getDefaultSettings().protocol;
+        return settings;
       } catch (e) {
         return getDefaultSettings();
       }
@@ -1150,6 +1533,7 @@ void loop() {
       setToggleState('toggleDailySummary', settings.dailySummary);
       setToggleState('toggleDailyVerification', settings.dailyVerification);
       updateNotificationBadge();
+      window.consoleI18n?.refresh();
     }
 
     function readConsoleSettingsFromUI() {
@@ -1218,42 +1602,47 @@ void loop() {
       const user = (currentSession && currentSession.user) || users.admin || AUTH_USERS.admin;
       const now = new Date();
       const chinese = isChineseLanguage(lang);
-      const active = hexagons.filter(h => h.enabled).length;
-      const total = hexagons.length || parseInt(textFromSelector('#statTotal', '0'), 10) || 0;
-      const idle = Math.max(total - active, 0);
-      const offline = parseInt(textFromSelector('#statOffline', '0'), 10) || 0;
-      const enabledHex = hexagons.filter(h => h.enabled);
-      const totalPower = enabledHex.reduce((sum, h) => sum + (parseFloat(h.power) || 0), 0);
-      const avgTemp = enabledHex.length
-        ? enabledHex.reduce((sum, h) => sum + (parseFloat(h.temp) || 0), 0) / enabledHex.length
+      const localize = value => window.consoleI18n?.translate(value, lang) || value;
+      const records = getDeviceRecords();
+      const activeRecords = records.filter(r => r.status === 'online');
+      const total = records.length;
+      const active = activeRecords.length;
+      const offline = records.filter(r => r.status === 'offline').length;
+      const idle = Math.max(total - active - offline, 0);
+      const totalPower = records.filter(r => r.status !== 'offline').reduce((sum, r) => sum + r.power, 0);
+      const peakLoad = Math.max(totalPower, ...powerLogEntries.map(e => e.power));
+      const todayGeneration = powerLogEntries.reduce((sum, e) => sum + e.power, 0);
+      const avgTemp = activeRecords.length
+        ? activeRecords.reduce((sum, r) => sum + r.temp, 0) / activeRecords.length
         : 0;
-      const weakSignal = hexagons.filter(h => Number(h.signal) <= -65).length;
+      const weakSignal = records.filter(r => Number(r.signal) <= -65 && r.status !== 'offline').length;
+      const liveMeasurements = hardwareSessionStarted;
       return {
         date: now.toLocaleDateString('zh-TW'),
         time: formatSystemTime(now),
-        user: `${user.name} (${user.roleTag || user.role})`,
+        user: localize(`${user.name} (${user.roleTag || user.role})`),
         lang,
         total,
         active,
         idle,
         offline,
-        currentOutput: textFromSelector('.left-panels [data-panel="output"] .stat-card:nth-child(1) .stat-value', `${totalPower.toFixed(1)} kWh`),
-        peakLoad: textFromSelector('.left-panels [data-panel="output"] .stat-card:nth-child(2) .stat-value', '78 kWh'),
-        todayGeneration: textFromSelector('#page-power .panel:nth-child(1) div[style*="font-family:var(--font-tech)"]', '84.6') + ' kWh',
-        weekGeneration: textFromSelector('#page-power .panel:nth-child(2) div[style*="font-family:var(--font-tech)"]', '523.8') + ' kWh',
-        monthGeneration: textFromSelector('#page-power .panel:nth-child(3) div[style*="font-family:var(--font-tech)"]', '2,184.5') + ' kWh',
-        carbonReduction: textFromSelector('#page-power .panel:nth-child(4) div[style*="font-family:var(--font-tech)"]', '1.53') + ' t CO2',
-        batteryStored: '342 kWh / 500 kWh (68.4%)',
-        waterSaved: '12,480 L',
-        panelTemp: avgTemp ? `${avgTemp.toFixed(1)} °C average` : '38.2 °C average',
-        networkMode: textFromSelector('#netHardwareMode', 'Simulation Mode'),
-        endpoint: textFromSelector('#baseEndpointLabel', 'Simulation Mode'),
-        packets: textFromSelector('#netRxPackets', `${hardwareRxCount} pkts`),
-        txPackets: `${hardwareTxCount} pkts`,
+        currentOutput: liveMeasurements ? textFromSelector('#metricCurrentOutput', '--') : `${totalPower.toFixed(1)} kWh`,
+        peakLoad: liveMeasurements ? '--' : `${peakLoad.toFixed(1)} kWh`,
+        todayGeneration: liveMeasurements ? '--' : `${todayGeneration.toFixed(1)} kWh`,
+        weekGeneration: liveMeasurements ? '--' : `${(todayGeneration * 6.2).toFixed(1)} kWh`,
+        monthGeneration: liveMeasurements ? '--' : `${(todayGeneration * 25.8).toLocaleString(undefined, { maximumFractionDigits: 1 })} kWh`,
+        carbonReduction: liveMeasurements ? '--' : `${(todayGeneration * 0.018).toFixed(2)} t CO2`,
+        batteryStored: liveMeasurements ? '--' : '342 kWh / 500 kWh (68.4%)',
+        waterSaved: liveMeasurements ? '--' : '12,480 L',
+        panelTemp: liveMeasurements ? '--' : localize(avgTemp ? `${avgTemp.toFixed(1)} °C average` : '38.2 °C average'),
+        networkMode: localize(textFromSelector('#netHardwareMode', 'Simulation Mode')),
+        endpoint: localize(textFromSelector('#baseEndpointLabel', 'Simulation Mode')),
+        packets: localize(textFromSelector('#netRxPackets', `${hardwareRxCount} pkts`)),
+        txPackets: localize(`${hardwareTxCount} pkts`),
         weakSignal,
-        alerts: 'INFO 24 / WARNING 3 / DANGER 1',
+        alerts: localize(`INFO 24 / WARNING ${records.filter(r => r.status === 'warning').length} / DANGER ${document.querySelectorAll('.alert-item.danger:not(.acked)').length}`),
         recommendation: weakSignal > 0
-          ? (chinese ? '建議檢查 ESP-NOW 訊號較弱的節點，並確認中繼覆蓋範圍。' : 'Inspect weak ESP-NOW signal nodes and confirm relay coverage.')
+          ? (chinese ? '建議檢查 Wi-Fi 訊號較弱的節點，並確認 UNO 熱點覆蓋範圍。' : 'Inspect nodes with weak Wi-Fi signals and confirm UNO access point coverage.')
           : (chinese ? '系統運作正常，請維持例行監控。' : 'System is operating normally. Continue routine monitoring.')
       };
     }
@@ -1262,7 +1651,7 @@ void loop() {
       if (isChineseLanguage(lang)) {
         return [
           '每日摘要報告',
-          '水面智慧浮動太陽能發電系統 - Macau Reservoir Unit 1',
+          '水面智慧浮動太陽能發電系統 — 澳門水庫一號機組',
           '',
           `日期：${data.date}`,
           `時間：${data.time}`,
@@ -1291,8 +1680,8 @@ void loop() {
           '網絡狀態',
           `- 數據模式：${data.networkMode}`,
           `- 連線端點：${data.endpoint}`,
-          `- RX 封包：${data.packets}`,
-          `- TX 封包：${data.txPackets}`,
+          `- 接收封包：${data.packets}`,
+          `- 傳送封包：${data.txPackets}`,
           '',
           '警報摘要',
           `- ${data.alerts}`,
@@ -1348,7 +1737,7 @@ void loop() {
       const data = buildDailySummaryReportData(lang);
       const reportText = buildDailySummaryReportText(data, lang);
       const html = `<div style="font-size:13px; color:var(--text-secondary); line-height:1.7">
-    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-bottom:14px">
+    <div class="report-summary">
       <div class="stat-card" style="margin:0"><span class="stat-label">今日發電</span><span class="stat-value">${data.todayGeneration}</span></div>
       <div class="stat-card" style="margin:0"><span class="stat-label">運行裝置</span><span class="stat-value">${data.active}/${data.total}</span></div>
       <div class="stat-card" style="margin:0"><span class="stat-label">警報摘要</span><span class="stat-value" style="font-size:14px">${data.alerts}</span></div>
@@ -1496,7 +1885,7 @@ void loop() {
 
     async function copyEmailNotification() {
       const email = readEmailPreview();
-      const text = `To: ${email.to}\nSubject: ${email.subject}\n\n${email.body}`;
+      const text = `${consoleI18n.translate('To:')} ${email.to}\n${consoleI18n.translate('Subject:')} ${email.subject}\n\n${email.body}`;
       try {
         await navigator.clipboard.writeText(text);
         showToast('✓ Email 通知內容已複製');
@@ -1521,46 +1910,80 @@ void loop() {
       const panel = document.querySelector(`.panel[data-panel="${name}"]`);
       if (panel) {
         panel.classList.toggle('collapsed');
+        panel.querySelector('.expand-icon')?.setAttribute('aria-expanded', String(!panel.classList.contains('collapsed')));
       }
     }
 
     // ==================== Modal 視窗 ====================
     function openModal(title, bodyHtml, footerHtml) {
+      if (!document.getElementById('modalRoot').classList.contains('active')) {
+        modalReturnFocus = document.activeElement;
+        const row = modalReturnFocus.closest('#deviceTableBody tr');
+        modalReturnDeviceFocus = row ? {
+          id: row.dataset.deviceId,
+          idButton: modalReturnFocus.classList.contains('device-id-btn'),
+          index: [...row.querySelectorAll('.row-action button')].indexOf(modalReturnFocus)
+        } : null;
+      }
       document.getElementById('modalTitle').textContent = title || '';
       document.getElementById('modalBody').innerHTML = bodyHtml || '';
       document.getElementById('modalFooter').innerHTML = footerHtml ||
         `<button class="toolbar-btn" onclick="closeModal()">關閉</button>`;
       document.getElementById('modalRoot').classList.add('active');
+      document.querySelector('.app-wrapper').inert = true;
+      document.body.classList.add('dialog-open');
+      requestAnimationFrame(() => {
+        if (document.getElementById('modalRoot').classList.contains('active')) {
+          (document.querySelector('#modalBody input, #modalBody select, #modalBody button') || document.getElementById('modalBox')).focus();
+        }
+      });
     }
     function closeModal() {
       document.getElementById('modalRoot').classList.remove('active');
+      const loginVisible = !document.getElementById('loginOverlay').classList.contains('hidden');
+      document.querySelector('.app-wrapper').inert = loginVisible;
+      document.body.classList.toggle('dialog-open', loginVisible);
+      if (!loginVisible) {
+        let target = modalReturnFocus?.isConnected ? modalReturnFocus : null;
+        if (!target && modalReturnDeviceFocus) {
+          const row = document.querySelector(`#deviceTableBody tr[data-device-id="${modalReturnDeviceFocus.id}"]`);
+          target = modalReturnDeviceFocus.idButton ? row?.querySelector('.device-id-btn') : row?.querySelectorAll('.row-action button')[modalReturnDeviceFocus.index];
+        }
+        (target || document.querySelector('.nav-item.active'))?.focus({ preventScroll: true });
+      }
     }
 
     // ==================== 頂部列功能 ====================
     function doSearch(q) {
       if (!q || !q.trim()) { showToast('請輸入關鍵字'); return; }
       q = q.trim().toLowerCase();
-      let hits = 0;
-      const matches = [];
-      if (('hex-' + q).includes('hex') || 'hexagon'.includes(q) || '發電'.includes(q)) hits += 3;
-      ['HEX-01', 'HEX-02', 'HEX-05', 'HEX-07'].forEach(d => {
-        if (d.toLowerCase().includes(q)) matches.push(d);
+      const matches = getDeviceRecords().filter(record => {
+        const label = `hex-${String(record.id).padStart(2, '0')}`;
+        return label.includes(q) || String(record.id) === q;
       });
-      const html = `<div style="font-size:13px; color:var(--text-secondary); line-height:1.8">
-    🔍 查詢關鍵字：<b style="color:var(--accent-on)">${q}</b><br>
-    比對命中：<b style="color:var(--accent-on)">${matches.length + hits}</b> 筆結果<br><br>
-    ${matches.length ? '匹配裝置：<span style="color:var(--accent-purple); font-family:var(--font-tech)">' + matches.join(', ') + '</span>' : '未匹配裝置 ID，已於功能選單搜尋相關結果'}
-  </div>`;
-      openModal('🔍 搜尋結果', html);
+      const pages = [...document.querySelectorAll('.nav-item')].filter(item =>
+        `${item.textContent} ${item.dataset.page}`.toLowerCase().includes(q));
+      const results = [
+        ...matches.map(record => `<button class="search-result" onclick="viewDevice(${record.id})"><span>HEX-${String(record.id).padStart(2, '0')}</span><span>${escapeHtml(statusLabel(record))} ↗</span></button>`),
+        ...pages.map(item => `<button class="search-result" onclick="closeModal(); navigateTo('${item.dataset.page}')"><span>${escapeHtml(item.textContent.trim())}</span><span aria-hidden="true">↗</span></button>`)
+      ];
+      openModal('搜尋結果', `<p style="margin-bottom:16px">${escapeHtml(q)} · ${results.length}</p><div class="search-results">${results.join('') || '<p>沒有符合的結果</p>'}</div>`);
     }
 
     function openNotifications() {
       const alerts = [...document.querySelectorAll('#page-alerts .alert-item')];
       const visibleAlerts = alerts.filter(a => !a.classList.contains('acked'));
+      const cards = visibleAlerts.map(alert => {
+        const clone = alert.cloneNode(true);
+        clone.removeAttribute('onclick');
+        clone.removeAttribute('role');
+        clone.removeAttribute('tabindex');
+        return clone.outerHTML;
+      });
       const html = `<div style="max-height:50vh; overflow-y:auto; display:flex; flex-direction:column; gap:10px">
-    ${visibleAlerts.length ? visibleAlerts.map(alert => alert.outerHTML.replace('onclick=', 'data-original-click=')).join('') : '<div style="color:var(--text-secondary); font-size:13px">目前沒有未確認通知。</div>'}
+    ${cards.length ? cards.join('') : '<div style="color:var(--text-secondary); font-size:13px">目前沒有未確認通知。</div>'}
   </div>`;
-      openModal(`🔔 通知中心 (${visibleAlerts.length})`, html);
+      openModal(`🔔 通知中心 (${visibleAlerts.length})`, html, '<button class="toolbar-btn" onclick="closeModal()">關閉</button><button class="toolbar-btn primary" onclick="closeModal(); navigateTo(\'alerts\')">警報日誌</button>');
     }
 
     function updateNotificationBadge() {
@@ -1568,14 +1991,13 @@ void loop() {
       if (!badge) return;
       const count = document.querySelectorAll('#page-alerts .alert-item:not(.acked)').length;
       const label = window.consoleI18n?.translate('Notifications') || 'Notifications';
-      badge.textContent = `🔔 ${label} (${count})`;
+      badge.innerHTML = `<span data-icon="bell"></span><span>${escapeHtml(label)} (${count})</span>`;
+      badge.setAttribute('aria-label', `${label} (${count})`);
+      window.refreshWorkspace?.();
     }
 
     function navToSettings() {
-      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-      document.querySelector('.nav-item[data-page="settings"]').classList.add('active');
-      document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active'));
-      document.getElementById('page-settings').classList.add('active');
+      navigateTo('settings');
       showToast('已跳轉至 系統設定');
     }
 
@@ -1720,8 +2142,7 @@ void loop() {
     }
 
     function hasPermission(action) {
-      const users = getStoredUsers();
-      const user = (currentSession && currentSession.user) || users.admin || AUTH_USERS.admin;
+      const user = currentSession && currentSession.user;
       if (!user || !user.permissions) return false;
       if (user.permissions.includes('all')) return true;
       if (user.permissions.includes(action)) return true;
@@ -1767,6 +2188,9 @@ void loop() {
       const subtitle = document.getElementById('loginCardSubtitle');
       if (overlay) {
         overlay.classList.remove('hidden');
+        document.querySelector('.app-wrapper').inert = true;
+        document.body.classList.add('dialog-open');
+        document.body.classList.add('auth-locked');
         document.getElementById('loginErrorMsg').classList.remove('active');
         if (isLockScreen && currentSession && currentSession.user) {
           if (title) title.textContent = 'CONSOLE LOCKED';
@@ -1792,6 +2216,9 @@ void loop() {
       const overlay = document.getElementById('loginOverlay');
       if (overlay) {
         overlay.classList.add('hidden');
+        document.body.classList.remove('auth-locked');
+        document.querySelector('.app-wrapper').inert = document.getElementById('modalRoot').classList.contains('active');
+        document.body.classList.toggle('dialog-open', document.getElementById('modalRoot').classList.contains('active'));
       }
     }
 
@@ -1831,16 +2258,17 @@ void loop() {
       const users = getStoredUsers();
       const target = users[type] || AUTH_USERS[type];
       if (!target) return;
-      const html = `<div style="font-size:13px; color:var(--text-secondary)">
+      const html = `<form id="roleSwitchForm" style="font-size:13px; color:var(--text-secondary)" onsubmit="event.preventDefault(); submitRoleSwitchPassword('${type}')">
     <div style="margin-bottom:12px">切換至 <b style="color:var(--accent-on)">${target.username}</b> 需要輸入此帳號密碼。</div>
     <div class="login-input-group" style="margin-bottom:0">
-      <label class="login-label">帳號密碼 / Account Password</label>
-      <input type="password" id="roleSwitchPassword" class="login-input" placeholder="請輸入 ${target.username} 密碼" style="padding-left:14px" onkeydown="if(event.key==='Enter') submitRoleSwitchPassword('${type}')">
+      <label class="login-label" for="roleSwitchPassword">帳號密碼 / Account Password</label>
+      <input type="password" id="roleSwitchPassword" class="login-input" placeholder="請輸入 ${target.username} 密碼" style="padding-left:14px" autocomplete="current-password" aria-describedby="roleSwitchError" oninput="clearRoleSwitchPasswordError()">
     </div>
-  </div>`;
+    <p id="roleSwitchError" class="role-switch-error" role="alert" hidden></p>
+  </form>`;
       const footer = `
     <button class="toolbar-btn" onclick="closeModal()">取消</button>
-    <button class="toolbar-btn primary" onclick="submitRoleSwitchPassword('${type}')">確認切換</button>
+    <button type="submit" class="toolbar-btn primary" id="roleSwitchSubmit" form="roleSwitchForm">確認切換</button>
   `;
       openModal('🔐 驗證切換權限', html, footer);
       setTimeout(() => {
@@ -1849,23 +2277,49 @@ void loop() {
       }, 100);
     }
 
+    function clearRoleSwitchPasswordError() {
+      document.getElementById('roleSwitchPassword')?.removeAttribute('aria-invalid');
+      const error = document.getElementById('roleSwitchError');
+      if (error) { error.hidden = true; error.textContent = ''; }
+    }
+
+    function showRoleSwitchPasswordError(message) {
+      const error = document.getElementById('roleSwitchError');
+      const input = document.getElementById('roleSwitchPassword');
+      if (!error || !input) return;
+      error.textContent = message;
+      error.hidden = false;
+      input.setAttribute('aria-invalid', 'true');
+      input.focus({ preventScroll: true });
+      input.select();
+    }
+
     async function submitRoleSwitchPassword(type) {
       const input = document.getElementById('roleSwitchPassword');
-      const password = input ? input.value : '';
+      const button = document.getElementById('roleSwitchSubmit');
+      if (!input || !button || button.disabled) return;
+      const password = input.value;
       const users = getStoredUsers();
       const target = users[type] || AUTH_USERS[type];
       if (!target) return;
       if (!password) {
-        showToast('請輸入帳號密碼');
+        showRoleSwitchPasswordError('請輸入帳號密碼');
         return;
       }
-      const passwordHash = await hashPassword(password);
-      if (passwordHash !== target.passwordHash && password !== target.password) {
-        showToast('密碼輸入不正確，無法切換帳號');
-        return;
+      button.disabled = true;
+      try {
+        const passwordHash = await hashPassword(password);
+        // Ignore verification if the user closed the dialog or edited the password.
+        if (!input.isConnected || !document.getElementById('modalRoot').classList.contains('active') || input.value !== password) return;
+        if (passwordHash !== target.passwordHash && password !== target.password) {
+          showRoleSwitchPasswordError('密碼輸入不正確，無法切換帳號');
+          return;
+        }
+        closeModal();
+        completeUserSwitch(target);
+      } finally {
+        if (button.isConnected) button.disabled = false;
       }
-      closeModal();
-      completeUserSwitch(target);
     }
 
     function quickFillAndSwitch(type) {
@@ -2016,18 +2470,14 @@ void loop() {
         if (!card || !btn) return;
         const isActive = (role === currentUsername);
         if (isActive) {
-          card.style.borderColor = 'var(--border-cyan)';
-          card.style.boxShadow = '0 0 15px rgba(0, 229, 200, 0.25)';
-          card.style.background = 'rgba(0, 229, 200, 0.1)';
+          card.classList.add('signed-in');
           btn.className = 'toolbar-btn';
-          btn.style.background = 'rgba(0, 255, 198, 0.2)';
+          btn.style.background = 'var(--surface-selected)';
           btn.style.color = 'var(--accent-on)';
           btn.style.borderColor = 'var(--accent-on)';
           btn.innerHTML = '● 目前登入中 (Active)';
         } else {
-          card.style.borderColor = 'rgba(0, 229, 200, 0.2)';
-          card.style.boxShadow = 'none';
-          card.style.background = 'rgba(0, 229, 200, 0.04)';
+          card.classList.remove('signed-in');
           btn.className = 'toolbar-btn';
           btn.style.background = '';
           btn.style.color = '';
@@ -2082,7 +2532,7 @@ void loop() {
         <span style="color:var(--text-muted)">本次連線:</span>
         <span style="color:var(--accent-purple); font-family:var(--font-tech)">${loginDuration} (Active)</span>
         <span style="color:var(--text-muted)">通訊節點:</span>
-        <span style="font-family:var(--font-tech)">ESP32-MESH Node #01</span>
+        <span style="font-family:var(--font-tech)">UNO R4 AP / MQTT</span>
         <span style="color:var(--text-muted)">授權清單:</span>
         <div style="display:flex; flex-wrap:wrap; gap:2px">${perms}</div>
       </div>
@@ -2103,7 +2553,11 @@ void loop() {
     }
 
     function openChangePasswordModal() {
-      const user = (currentSession && currentSession.user) || AUTH_USERS.admin;
+      const user = currentSession && currentSession.user;
+      if (!user) {
+        showToast('請先登入後再修改密碼');
+        return;
+      }
       const html = `<div style="font-size:13px; color:var(--text-secondary)">
     <div style="margin-bottom:12px">正在修改帳號 <b style="color:var(--accent-on)">${user.username}</b> 之密碼：</div>
     <div class="login-input-group">
@@ -2131,7 +2585,11 @@ void loop() {
       const oldPwd = document.getElementById('modalOldPwd').value;
       const newPwd = document.getElementById('modalNewPwd').value;
       const confirmPwd = document.getElementById('modalConfirmPwd').value;
-      const user = (currentSession && currentSession.user) || AUTH_USERS.admin;
+      const user = currentSession && currentSession.user;
+      if (!user) {
+        showToast('請先登入後再修改密碼');
+        return;
+      }
 
       if (!oldPwd || !newPwd || !confirmPwd) {
         showToast('請填寫所有密碼欄位');
@@ -2221,65 +2679,85 @@ void loop() {
 
     // ==================== 裝置管理 ====================
     let deviceCount = 8;
+    let deviceIds = Array.from({ length: deviceCount }, (_, i) => i + 1);
     function buildDeviceTable() {
       const tbody = document.getElementById('deviceTableBody');
       if (!tbody) return;
+      const focusedAction = tbody.contains(document.activeElement) ? {
+        id: document.activeElement.closest('tr')?.dataset.deviceId,
+        idButton: document.activeElement.classList.contains('device-id-btn'),
+        index: [...document.activeElement.parentElement.children].indexOf(document.activeElement)
+      } : null;
       const rows = [];
-      const statuses = ['online', 'online', 'online', 'warning', 'online', 'online', 'online', 'offline'];
-      const labels = ['ONLINE', 'ONLINE', 'ONLINE', 'WARNING', 'ONLINE', 'ONLINE', 'ONLINE', 'OFFLINE'];
-      for (let i = 1; i <= deviceCount; i++) {
-        rows.push(`<tr style="cursor:pointer" oncontextmenu="event.preventDefault(); viewDevice(${i}); return false;" ondblclick="viewDevice(${i})">
-      <td style="font-family:var(--font-tech); color:var(--accent-on)">HEX-${String(i).padStart(2, '0')}</td>
-      <td style="color:var(--text-secondary); font-size:12px">(${i % 3 - 1}, ${Math.floor(i / 3) - 1})</td>
-      <td><span class="status-pill ${statuses[(i - 1) % statuses.length]}">${labels[(i - 1) % labels.length]}</span></td>
-      <td style="font-family:var(--font-tech)">12.0${(Math.random() * 0.3).toFixed(2)} V</td>
-      <td style="font-family:var(--font-tech)">${(30 + Math.random() * 15).toFixed(1)} °C</td>
-      <td style="color:var(--accent-on)">●●●●○</td>
-      <td style="font-family:var(--font-tech); color:var(--accent-purple)">${(Math.random() * 15 + 2).toFixed(2)}</td>
-      <td style="color:var(--text-muted); font-size:11px">${String(Math.floor(Math.random() * 59)).padStart(2, '0')} 秒前</td>
+      getDeviceRecords().forEach(record => {
+        const i = record.id;
+        rows.push(`<tr data-device-id="${i}" style="cursor:pointer" oncontextmenu="event.preventDefault(); viewDevice(${i}); return false;" ondblclick="viewDevice(${i})">
+      <td><button class="device-id-btn" onclick="viewDevice(${i})">HEX-${String(i).padStart(2, '0')}<span data-icon="arrow-up-right"></span></button></td>
+      <td style="color:var(--text-secondary); font-size:12px">(${record.q}, ${record.r})</td>
+      <td><span class="status-pill ${statusClass(record)}">${statusLabel(record)}</span></td>
+      <td style="font-family:var(--font-tech)">${formatMeasurement(record, 'voltage', 2)} V</td>
+      <td style="font-family:var(--font-tech)">${formatMeasurement(record, 'temp')} °C</td>
+      <td style="color:var(--accent-on)">${formatMeasurement(record, 'signal', 0)} dBm</td>
+      <td style="font-family:var(--font-tech); color:var(--accent-purple)">${formatMeasurement(record, 'power', 2)}</td>
+      <td style="color:var(--text-muted); font-size:11px">${formatSecondsAgo(record.lastReport)} · ${record.source === TELEMETRY_SOURCE_LIVE ? 'LIVE' : 'SIM'}</td>
       <td>
         <div class="row-action">
-          <button onclick="event.stopPropagation(); viewDevice(${i})" title="檢視">👁</button>
-          <button onclick="event.stopPropagation(); toggleDevice(${i})" title="啟動/停止">⏻</button>
-          <button class="danger" onclick="event.stopPropagation(); removeDevice(${i}, this)" title="移除">✕</button>
+          <button onclick="event.stopPropagation(); viewDevice(${i})" title="檢視" aria-label="檢視 HEX-${String(i).padStart(2, '0')}"><span data-icon="eye"></span></button>
+          <button onclick="event.stopPropagation(); toggleDevice(${i})" title="啟動/停止" aria-label="啟動/停止 HEX-${String(i).padStart(2, '0')}"><span data-icon="power"></span></button>
+          <button class="danger" onclick="event.stopPropagation(); removeDevice(${i}, this)" title="移除" aria-label="移除 HEX-${String(i).padStart(2, '0')}"><span data-icon="x"></span></button>
         </div>
       </td>
     </tr>`);
-      }
+      });
       tbody.innerHTML = rows.join('');
+      if (focusedAction) {
+        const row = tbody.querySelector(`tr[data-device-id="${focusedAction.id}"]`);
+        const action = focusedAction.idButton ? row?.querySelector('.device-id-btn') : row?.querySelector('.row-action')?.children[focusedAction.index];
+        action?.focus({ preventScroll: true });
+      }
+      window.refreshWorkspace?.();
     }
 
     function viewDevice(id) {
-      const hex = hexagons.find(h => h.id === id) || { id, power: '6.5', temp: '34.2', signal: -52, enabled: true };
+      const record = ensureDeviceTelemetry(id);
+      const hex = hexagons.find(h => h.id === id) || { id, power: record.power.toFixed(1), temp: record.temp.toFixed(1), signal: record.signal, enabled: record.status !== 'offline' };
       const html = `<div style="font-size:13px; color:var(--text-secondary); line-height:2">
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
       <div class="stat-card" style="margin:0"><span class="stat-label">裝置 ID</span><span class="stat-value">HEX-${String(id).padStart(2, '0')}</span></div>
-      <div class="stat-card" style="margin:0"><span class="stat-label">狀態</span><span class="stat-value" style="color:${hex.enabled ? 'var(--accent-on)' : 'var(--accent-off)'}">${hex.enabled ? 'ONLINE' : 'OFFLINE'}</span></div>
-      <div class="stat-card" style="margin:0"><span class="stat-label">發電功率</span><span class="stat-value">${hex.power} kWh</span></div>
-      <div class="stat-card" style="margin:0"><span class="stat-label">面板溫度</span><span class="stat-value">${hex.temp} °C</span></div>
-      <div class="stat-card" style="margin:0"><span class="stat-label">訊號</span><span class="stat-value">${hex.signal} dBm</span></div>
-      <div class="stat-card" style="margin:0"><span class="stat-label">韌體版本</span><span class="stat-value" style="font-size:13px">v2.4.1</span></div>
+      <div class="stat-card" style="margin:0"><span class="stat-label">狀態</span><span class="stat-value" style="color:${hex.enabled ? 'var(--accent-on)' : 'var(--accent-off)'}">${statusLabel(record)}</span></div>
+      <div class="stat-card" style="margin:0"><span class="stat-label">發電功率</span><span class="stat-value">${formatMeasurement(record, 'power')} ${record.source === TELEMETRY_SOURCE_LIVE ? 'W' : 'kWh'}</span></div>
+      <div class="stat-card" style="margin:0"><span class="stat-label">面板溫度</span><span class="stat-value">${formatMeasurement(record, 'temp')} °C</span></div>
+      <div class="stat-card" style="margin:0"><span class="stat-label">訊號</span><span class="stat-value">${formatMeasurement(record, 'signal', 0)} dBm</span></div>
+      <div class="stat-card" style="margin:0"><span class="stat-label">韌體版本</span><span class="stat-value" style="font-size:13px">${record.source === TELEMETRY_SOURCE_LIVE ? 'HS1' : 'SIM'}</span></div>
     </div>
     <div style="margin-top:16px; padding:12px; background:rgba(0,229,200,0.05); border-radius:4px; border:1px solid rgba(0,229,200,0.2)">
-      <b style="color:var(--accent-on)">MAC 位址：</b>24:6F:28:AA:BB:${String(id).padStart(2, '0')}<br>
-      <b style="color:var(--accent-on)">ESP32 晶片：</b>ESP-WROOM-32 (8MB Flash)<br>
-      <b style="color:var(--accent-on)">Buck 電路：</b>LM2596 降壓穩壓 12V / 5A<br>
-      <b style="color:var(--accent-on)">太陽能板：</b>單晶 18V / 20W (六角蜂巢造型)
+      <b style="color:var(--accent-on)">MAC 位址：</b>${escapeHtml(record.mac)}<br>
+      <b style="color:var(--accent-on)">資料來源：</b>${record.source === TELEMETRY_SOURCE_LIVE ? 'Live telemetry' : 'Simulation sample'}<br>
+      <b style="color:var(--accent-on)">Hall D0–D5：</b>${record.halls ? record.halls.map((active, index) => `D${index}: ${active ? 'DETECTED' : 'clear'}`).join(' · ') : '--'}<br>
+      <b style="color:var(--accent-on)">D6–D8 configuration：</b>${record.configBits === null || record.configBits === undefined ? 'Manual / unavailable' : `D6=${record.configBits & 1}, D7=${(record.configBits >> 1) & 1}, D8=${(record.configBits >> 2) & 1} (1 = grounded); ID=${record.id}`}<br>
+      <b style="color:var(--accent-on)">Power control：</b>${record.powerControlAvailable ? 'Configured' : 'Unavailable'}<br>
+      <small>Hall states report magnet/contact detection. Neighbor identities and physical routing require a configured map.</small>
     </div>
   </div>`;
-      const footer = `<button class="toolbar-btn danger" onclick="closeModal()">關閉</button><button class="toolbar-btn" onclick="closeModal(); showToast('✓ HEX-${String(id).padStart(2, '0')} 設定已套用')">套用設定</button><button class="toolbar-btn primary" onclick="closeModal(); navigateTo('overview')">定位</button>`;
+      const footer = `<button class="toolbar-btn danger" onclick="closeModal()">關閉</button><button class="toolbar-btn primary" onclick="closeModal(); navigateTo('overview')">定位</button>`;
       openModal(`⬢ HEX-${String(id).padStart(2, '0')} 裝置詳情`, html, footer);
     }
 
     function toggleDevice(id) {
       if (!checkPermission('control', '切換裝置開關')) return;
+      if (hardwareSessionStarted) {
+        const record = deviceTelemetry.get(id);
+        sendHardwareCommand({ cmd: 'set_power', id, enabled: !record?.enabled });
+        return;
+      }
       const hex = hexagons.find(h => h.id === id);
       if (hex) {
         hex.enabled = !hex.enabled;
+        updateTelemetryFromHex(hex);
         updateStats();
         drawAll();
         sendHardwareCommand({ cmd: "set_power", id: id, enabled: hex.enabled });
-        showToast(`HEX-${String(id).padStart(2, '0')} 已${hex.enabled ? '啟動 ON' : '停止 OFF'} (ESP-NOW 指令已發送)`);
+        showToast(`HEX-${String(id).padStart(2, '0')} 已${hex.enabled ? '啟動 ON' : '停止 OFF'} (Simulation)`);
       } else {
         showToast(`HEX-${String(id).padStart(2, '0')} 狀態已切換`);
       }
@@ -2302,7 +2780,13 @@ void loop() {
             updateStats();
             drawAll();
           }
-          deviceCount = Math.max(0, deviceCount - 1);
+          deviceTelemetry.delete(id);
+          for (let i = powerLogEntries.length - 1; i >= 0; i--) {
+            if (powerLogEntries[i].deviceId === id) powerLogEntries.splice(i, 1);
+          }
+          deviceIds = deviceIds.filter(deviceId => deviceId !== id);
+          deviceCount = deviceIds.length;
+          buildPowerLog();
         }, 300);
       }
       showToast(`HEX-${String(id).padStart(2, '0')} 已從管理列表移除`);
@@ -2334,17 +2818,17 @@ void loop() {
 
     function confirmAddDevice() {
       if (!checkPermission('control', '新增裝置')) return;
-      deviceCount = deviceCount + 1;
-      const id = deviceCount;
-      const size = Math.min(canvas.width, canvas.height) * 0.09 * currentZoom;
+      const id = deviceIds.length ? Math.max(...deviceIds) + 1 : 1;
+      deviceIds.push(id);
+      deviceCount = deviceIds.length;
+      const size = Math.min(canvasWidth, canvasHeight) * 0.09 * currentZoom;
       const [q, r] = document.getElementById('newDevPos').value.split(',').map(s => parseInt(s.trim()) || 0);
       const enabled = document.getElementById('newDevToggle').classList.contains('active');
-      if (canvas.width > 0) {
-        const cx = canvas.width / 2 + size * Math.sqrt(3) * (q + r * 0.5);
-        const cy = canvas.height / 2 + size * 1.5 * r;
+      if (canvasWidth > 0) {
         const hex = new Hexagon(id, q, r, size);
         hex.enabled = enabled;
         hexagons.push(hex);
+        updateTelemetryFromHex(hex);
         buildEdges();
         updateStats();
         drawAll();
@@ -2357,10 +2841,9 @@ void loop() {
     function exportDevices() {
       const date = new Date().toISOString().slice(0, 10);
       let csv = consoleI18n.translate('DeviceID,Coordinate,Status,Voltage,Temperature,Signal,Power,LastReport') + '\n';
-      const statuses = ['ONLINE', 'ONLINE', 'ONLINE', 'WARNING', 'ONLINE', 'ONLINE', 'ONLINE', 'OFFLINE'];
-      for (let i = 1; i <= deviceCount; i++) {
-        csv += `HEX-${String(i).padStart(2, '0')},"(${i % 3 - 1},${Math.floor(i / 3) - 1})",${consoleI18n.translate(statuses[(i - 1) % 8])},12.0${(Math.random() * 0.3).toFixed(2)},${(30 + Math.random() * 15).toFixed(1)},${-40 - Math.floor(Math.random() * 30)},${(Math.random() * 15 + 2).toFixed(2)},${String(Math.floor(Math.random() * 59)).padStart(2, '0')} ${consoleI18n.translate('秒前')}\n`;
-      }
+      getDeviceRecords().forEach(record => {
+        csv += `HEX-${String(record.id).padStart(2, '0')},"(${record.q},${record.r})",${consoleI18n.translate(statusLabel(record))},${formatMeasurement(record, 'voltage', 2)},${formatMeasurement(record, 'temp')},${formatMeasurement(record, 'signal', 0)},${formatMeasurement(record, 'power', 2)},${formatSecondsAgo(record.lastReport)} (${record.source})\n`;
+      });
       const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -2376,12 +2859,25 @@ void loop() {
     }
 
     function navigateTo(page) {
-      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      const target = document.getElementById('page-' + page);
+      if (!target) return;
+      document.querySelectorAll('.nav-item').forEach(n => {
+        n.classList.remove('active');
+        n.removeAttribute('aria-current');
+      });
       const nav = document.querySelector(`.nav-item[data-page="${page}"]`);
-      if (nav) nav.classList.add('active');
+      if (nav) {
+        nav.classList.add('active');
+        nav.setAttribute('aria-current', 'page');
+      }
       document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active'));
       const tgt = document.getElementById('page-' + page);
       if (tgt) tgt.classList.add('active');
+      setNavigationOpen(false);
+      if (page === 'overview') resizeCanvas();
+      const heading = target.querySelector('h1');
+      if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+      window.scrollTo({ top: 0, behavior: 'instant' });
     }
 
     // ==================== 警報日誌 ====================
@@ -2408,24 +2904,26 @@ void loop() {
     function buildPowerLog() {
       const tbody = document.getElementById('powerLogBody');
       if (!tbody) return;
-      const times = ['14:30', '14:00', '13:30', '13:00', '12:30', '12:00', '11:30'];
-      const rows = times.map((t, idx) => {
-        const dev = (idx % 8) + 1;
-        const p = (Math.random() * 10 + 3).toFixed(2);
-        const v = (12 + Math.random() * 0.5).toFixed(2);
-        const a = (parseFloat(p) / parseFloat(v)).toFixed(2);
-        const eff = (88 + Math.random() * 10).toFixed(1);
+      seedPowerLog();
+      const rows = powerLogEntries.slice(0, 12).map(entry => {
+        const dev = entry.deviceId;
+        const p = entry.power.toFixed(2);
+        const v = entry.voltage.toFixed(2);
+        const a = entry.current.toFixed(2);
+        const eff = entry.efficiency.toFixed(1);
+        const stamp = `${entry.timestamp.toISOString().slice(0, 10)} ${formatSystemTime(entry.timestamp, true)}`;
         return `<tr style="cursor:pointer" onclick="viewDevice(${dev})">
-      <td style="font-family:var(--font-tech); color:var(--text-secondary)">2026-08-15 ${t}:00</td>
+      <td style="font-family:var(--font-tech); color:var(--text-secondary)">${stamp}</td>
       <td style="font-family:var(--font-tech); color:var(--accent-on); cursor:pointer">HEX-${String(dev).padStart(2, '0')} ↗</td>
       <td style="font-family:var(--font-tech); color:var(--accent-purple)">${p}</td>
       <td style="font-family:var(--font-tech)">${v}</td>
       <td style="font-family:var(--font-tech)">${a}</td>
       <td><div class="progress-bar" style="width:80px; display:inline-block; vertical-align:middle; margin:0 8px"><div class="progress-fill" style="width:${eff}%"></div></div>${eff}%</td>
-      <td><span class="status-pill online">正常</span></td>
+      <td><span class="status-pill ${entry.status === '正常' ? 'online' : 'warning'}">${entry.status}</span></td>
     </tr>`;
       });
       tbody.innerHTML = rows.join('');
+      updatePowerSummaryUI();
     }
 
     // ==================== 儲存監控互動 ====================
@@ -2449,19 +2947,36 @@ void loop() {
     function startSimulation() {
       if (simulationInterval) clearInterval(simulationInterval);
       simulationInterval = setInterval(() => {
-        if (isHardwareConnected) return; // 硬體直連時不覆蓋真實 ESP32 遙測數據
+        if (hardwareSessionStarted || isHardwareConnected) return;
         hexagons.forEach(h => {
           if (h.enabled) {
             h.power = (Math.random() * 8 + 2).toFixed(1);
             h.temp = (30 + Math.random() * 12).toFixed(1);
+            const record = updateTelemetryFromHex(h);
+            if (Math.random() > 0.55) appendPowerLog(record);
           }
         });
         if (hexagons.length > 0 && viewMode !== 'id') drawAll();
+        buildDeviceTable();
+        buildPowerLog();
       }, 3500);
     }
 
     // ==================== 初始化 ====================
+    window.addEventListener('solar-language-change', () => {
+      updateNotificationBadge();
+      window.refreshWorkspace?.();
+      const report = document.getElementById('dailySummaryReportText');
+      if (report && document.getElementById('modalRoot').classList.contains('active')) {
+        const data = buildDailySummaryReportData();
+        report.textContent = buildDailySummaryReportText(data);
+        const alerts = document.querySelector('#modalBody .report-summary .stat-card:last-child .stat-value');
+        if (alerts) alerts.textContent = data.alerts;
+      }
+    });
     window.addEventListener('resize', resizeCanvas);
+    const canvasResizeObserver = new ResizeObserver(resizeCanvas);
+    canvasResizeObserver.observe(canvas.parentElement);
     window.addEventListener('load', () => {
       initAuth();
       applyConsoleSettings();
@@ -2470,6 +2985,7 @@ void loop() {
       buildDeviceTable();
       buildPowerLog();
       startSimulation();
+      startConnectionHealthMonitor();
       updateBaseStationUI();
       updateNotificationBadge();
       setTimeout(() => runDailySummaryNotification(false), 1200);

@@ -1,0 +1,20 @@
+{
+  "activeModules": 6,
+  "idleModules": 1,
+  "offlineModules": 1,
+  "currentOutputKw": 43.2,
+  "todayGenerationKwh": 87.6,
+  "batteryPercent": 68,
+  "waterSavedLiters": 12480,
+  "alertCount": 1,
+  "devices": [
+    { "id": 1, "status": "online", "power": 5.1, "temp": 33.2, "voltage": 11.98, "signal": -46 },
+    { "id": 2, "status": "online", "power": 6.5, "temp": 34.9, "voltage": 12.06, "signal": -50 },
+    { "id": 3, "status": "online", "power": 7.9, "temp": 36.6, "voltage": 12.14, "signal": -54 },
+    { "id": 4, "status": "warning", "power": 9.2, "temp": 38.3, "voltage": 12.22, "signal": -58 },
+    { "id": 5, "status": "online", "power": 10.5, "temp": 40.0, "voltage": 12.3, "signal": -62 },
+    { "id": 6, "status": "online", "power": 3.8, "temp": 31.5, "voltage": 11.9, "signal": -42 },
+    { "id": 7, "status": "online", "power": 5.1, "temp": 33.2, "voltage": 11.98, "signal": -46 },
+    { "id": 8, "status": "offline", "power": 0, "temp": 0, "voltage": 0, "signal": -90 }
+  ]
+}

@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const now = new Date();
@@ -22,15 +22,31 @@ const systemName = process.env.SYSTEM_NAME || '水面智慧浮動太陽能發電
 const dashboardUrl = process.env.DASHBOARD_URL || '';
 const language = process.env.REPORT_LANGUAGE || 'zh-TW';
 
+async function loadTelemetry() {
+  const telemetryPath = process.env.TELEMETRY_FILE || path.join('data', 'telemetry-sample.json');
+  try {
+    const raw = await readFile(telemetryPath, 'utf8');
+    return JSON.parse(raw);
+  } catch (error) {
+    console.warn(`Telemetry file not available (${telemetryPath}); using environment/default values.`);
+    return {};
+  }
+}
+
+function metric(telemetry, key, envName, fallback) {
+  return String(process.env[envName] ?? telemetry[key] ?? fallback);
+}
+
+const telemetry = await loadTelemetry();
 const sample = {
-  activeModules: process.env.ACTIVE_MODULES || '18',
-  idleModules: process.env.IDLE_MODULES || '4',
-  offlineModules: process.env.OFFLINE_MODULES || '2',
-  currentOutputKw: process.env.CURRENT_OUTPUT_KW || '127.4',
-  todayGenerationKwh: process.env.TODAY_GENERATION_KWH || '846.2',
-  batteryPercent: process.env.BATTERY_PERCENT || '78',
-  waterSavedLiters: process.env.WATER_SAVED_LITERS || '12840',
-  alertCount: process.env.ALERT_COUNT || '0'
+  activeModules: metric(telemetry, 'activeModules', 'ACTIVE_MODULES', '6'),
+  idleModules: metric(telemetry, 'idleModules', 'IDLE_MODULES', '1'),
+  offlineModules: metric(telemetry, 'offlineModules', 'OFFLINE_MODULES', '1'),
+  currentOutputKw: metric(telemetry, 'currentOutputKw', 'CURRENT_OUTPUT_KW', '43.2'),
+  todayGenerationKwh: metric(telemetry, 'todayGenerationKwh', 'TODAY_GENERATION_KWH', '87.6'),
+  batteryPercent: metric(telemetry, 'batteryPercent', 'BATTERY_PERCENT', '68'),
+  waterSavedLiters: metric(telemetry, 'waterSavedLiters', 'WATER_SAVED_LITERS', '12480'),
+  alertCount: metric(telemetry, 'alertCount', 'ALERT_COUNT', '1')
 };
 
 function buildZhReport() {
