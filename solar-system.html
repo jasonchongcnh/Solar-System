@@ -80,6 +80,21 @@
     <div class="container">
         <header class="lab-header"><span class="lab-brand">Hexagon Solar</span><div class="lab-actions"><label class="language-switch"><span data-language-label>Language</span><select data-language-select aria-label="Language"><option value="zh-TW" lang="zh-TW">繁體中文</option><option value="en" lang="en">English</option></select></label><button type="button" class="theme-toggle" data-theme-toggle title="Switch to dark mode" aria-label="Switch to dark mode"><span data-icon="moon" aria-hidden="true"></span></button><a href="management-console.html"><span data-icon="arrow-left"></span>Management Console</a></div></header>
         <h1>Array Lab</h1>
+
+        <section class="algorithm-intro" aria-labelledby="algorithm-title">
+            <div class="algorithm-intro__heading">
+                <span class="algorithm-intro__eyebrow">Path-finding algorithm</span>
+                <h2 id="algorithm-title">How the route is found</h2>
+                <p>The lab models each enabled hexagon as a graph node. Shared sides become connections, so the route can move only between adjacent modules.</p>
+            </div>
+            <ol class="algorithm-steps">
+                <li><strong>Build the array</strong><span>Place modules on an axial hexagonal grid and merge matching sides.</span></li>
+                <li><strong>Create the graph</strong><span>Record each shared side as a two-way link between module IDs.</span></li>
+                <li><strong>Search with backtracking</strong><span>Try an unvisited neighbour, undo a choice that reaches a dead end, and continue until every enabled module is included.</span></li>
+                <li><strong>Prefer a loop</strong><span>If the final module connects back to the start, display a closed route; otherwise, show the first complete open route.</span></li>
+            </ol>
+            <p class="algorithm-intro__note">The route visits each enabled module once. Disabled modules are excluded from the search.</p>
+        </section>
         
         <div class="controls">
             <label for="hexagonCount">Number of hexagons:</label>
@@ -110,8 +125,37 @@
         let graph = {};
         let paths = [];
         let displayedPath = null;
+        let pathAnimationTimers = [];
+        let pathAnimationVersion = 0;
         let focusedHexIndex = 0;
         let sceneTransform = { scale: 1, x: 0, y: 0 };
+
+        function cancelPathAnimation() {
+            pathAnimationVersion++;
+            pathAnimationTimers.forEach(clearTimeout);
+            pathAnimationTimers = [];
+        }
+
+        function updatePathInfo(message, isError = false) {
+            const pathInfo = document.getElementById('pathInfo');
+            pathInfo.textContent = `Path information: ${message}`;
+            if (isError) {
+                // Restart the visual cue when the same error happens twice in a row.
+                pathInfo.classList.remove('is-error');
+                void pathInfo.offsetWidth;
+                pathInfo.classList.add('is-error');
+            } else {
+                pathInfo.classList.remove('is-error');
+            }
+        }
+
+        function showPathError(message) {
+            displayedPath = null;
+            cancelPathAnimation();
+            drawHexagonGrid();
+            updatePathInfo(message, true);
+            alert(labText(message));
+        }
         
         // 設置畫布大小
         function resizeCanvas() {
@@ -230,6 +274,7 @@
         }
         
         function generateHexagonGrid(count) {
+            cancelPathAnimation();
             displayedPath = null;
             focusedHexIndex = 0;
             hexagons = [];
@@ -621,14 +666,19 @@
 
             let delay = 0;
             const animationStep = 100;
+            cancelPathAnimation();
+            const animationVersion = pathAnimationVersion;
 
             // 繪製路徑
             for (let i = 0; i < path.length - 1; i++) {
-                setTimeout(() => {
+                const timer = setTimeout(() => {
+                    // A module may have been disabled while this route was animating.
+                    // Never paint a stale segment or one that uses a disabled module.
+                    if (animationVersion !== pathAnimationVersion || displayedPath !== path) return;
                     const hex1 = hexagons.find(h => h.id === path[i]);
                     const hex2 = hexagons.find(h => h.id === path[i+1]);
                     
-                    if (hex1 && hex2) {
+                    if (hex1?.enabled && hex2?.enabled) {
                         const hue = (i * 360 / path.length) % 360;
                         const color = `hsl(${hue}, 100%, 50%)`;
 
@@ -684,6 +734,7 @@
                         }
                     }
                 }, delay);
+                pathAnimationTimers.push(timer);
                 
                 delay += animationStep;
             }
@@ -700,7 +751,7 @@
             drawHexagonGrid();
             
             document.getElementById('pathCount').textContent = `Number of unique connection paths: ${countUniquePaths()}`;
-            document.getElementById('pathInfo').textContent = `Path information: ${canDrawEulerPath() ? 'Can draw connecting path' : "Can't draw path"}`;
+            updatePathInfo(canDrawEulerPath() ? 'Can draw connecting path' : "Can't draw path");
         });
         
         document.getElementById('solveBtn').addEventListener('click', function() {
@@ -716,14 +767,18 @@
             }
             
             const path = findEulerPath();
-            if (path) {
+            const containsOnlyEnabledModules = path?.every(id => hexagons.find(hex => hex.id === id)?.enabled);
+            if (path && containsOnlyEnabledModules) {
                 displayedPath = path;
                 drawHexagonGrid();
-                document.getElementById('pathInfo').textContent = `Path information: All enabled hexagons are connected`;
+                updatePathInfo('All enabled hexagons are connected');
+            } else {
+                showPathError('No complete stroke path exists for the enabled modules. Try enabling a neighbouring module or changing the array.');
             }
         });
         
         document.getElementById('clearBtn').addEventListener('click', function() {
+            cancelPathAnimation();
             displayedPath = null;
             ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -733,7 +788,7 @@
             paths = [];
             
             document.getElementById('pathCount').textContent = 'Number of unique connection paths: 0';
-            document.getElementById('pathInfo').textContent = 'Path information: Not yet calculated';
+            updatePathInfo('Not yet calculated');
         });
         
         // 添加畫布點擊事件處理
@@ -756,11 +811,12 @@
             const hex = hexagons[focusedHexIndex];
             if (!hex) return;
             hex.toggleEnabled();
+            cancelPathAnimation();
             displayedPath = null;
             drawHexagonGrid();
             const enabledCount = hexagons.filter(h => h.enabled).length;
             document.getElementById('pathCount').textContent = `Number of enabled hexagons: ${enabledCount}`;
-            document.getElementById('pathInfo').textContent = enabledCount ? 'Path information: Not yet calculated' : 'Path information: No hexagons enabled';
+            updatePathInfo(enabledCount ? 'Not yet calculated' : 'No hexagons enabled');
         }
 
         canvas.addEventListener('keydown', event => {
@@ -792,7 +848,7 @@
             drawHexagonGrid();
             
             document.getElementById('pathCount').textContent = `Number of enabled hexagons: ${hexagons.filter(hex => hex.enabled).length}`;
-            document.getElementById('pathInfo').textContent = 'Path information: Not yet calculated';
+            updatePathInfo('Not yet calculated');
         };
     </script>
     <script src="assets/js/management-console-i18n.js"></script>

@@ -662,6 +662,18 @@ waiting for application acknowledgement.|waiting for application acknowledgement
 [PENDING] Node #|[PENDING] Node #|[待確認] 節點編號：
 acknowledged|acknowledged|已確認
 Management Console|Management Console|管理控制台
+Path-finding algorithm|Path-finding algorithm|路徑搜尋演算法
+How the route is found|How the route is found|路徑如何產生
+The lab models each enabled hexagon as a graph node. Shared sides become connections, so the route can move only between adjacent modules.|The lab models each enabled hexagon as a graph node. Shared sides become connections, so the route can move only between adjacent modules.|實驗室將每個啟用的六角模組視為圖論節點。共用邊會形成連線，因此路徑只能移動至相鄰模組。
+Build the array|Build the array|建立陣列
+Place modules on an axial hexagonal grid and merge matching sides.|Place modules on an axial hexagonal grid and merge matching sides.|在軸向六角網格上放置模組，並合併重合的邊。
+Create the graph|Create the graph|建立圖形
+Record each shared side as a two-way link between module IDs.|Record each shared side as a two-way link between module IDs.|將每條共用邊記錄為模組編號之間的雙向連線。
+Search with backtracking|Search with backtracking|以回溯法搜尋
+Try an unvisited neighbour, undo a choice that reaches a dead end, and continue until every enabled module is included.|Try an unvisited neighbour, undo a choice that reaches a dead end, and continue until every enabled module is included.|嘗試尚未走訪的相鄰模組；若遇到死路便撤銷選擇，持續搜尋至所有啟用模組均納入路徑。
+Prefer a loop|Prefer a loop|優先形成迴路
+If the final module connects back to the start, display a closed route; otherwise, show the first complete open route.|If the final module connects back to the start, display a closed route; otherwise, show the first complete open route.|若最後一個模組可連回起點，便顯示閉合路徑；否則顯示第一條完整的開放路徑。
+The route visits each enabled module once. Disabled modules are excluded from the search.|The route visits each enabled module once. Disabled modules are excluded from the search.|路徑會各走訪一次啟用模組；停用模組不會納入搜尋。
 Number of hexagons:|Number of hexagons:|六角模組數量：
 Generate a honeycomb|Generate a honeycomb|產生蜂窩陣列
 Find a stroke path|Find a stroke path|尋找一筆畫路徑
@@ -675,6 +687,7 @@ No hexagons enabled|No hexagons enabled|尚未啟用模組
 Can draw connecting path|Can draw connecting path|可繪製連接路徑
 Can't draw path|Can't draw path|無法繪製路徑
 All enabled hexagons are connected|All enabled hexagons are connected|所有啟用模組已連接
+No complete stroke path exists for the enabled modules. Try enabling a neighbouring module or changing the array.|No complete stroke path exists for the enabled modules. Try enabling a neighbouring module or changing the array.|啟用模組之間找不到完整的一筆畫路徑。請啟用相鄰模組或變更陣列配置後再試。
 Please enable at least one hexagon first!|Please enable at least one hexagon first!|請先啟用至少一個六角模組！
 Please enter number between 1 to 20!|Please enter number between 1 to 20!|請輸入 1 至 20 之間的數量！
 Please generate honeycomb first!|Please generate honeycomb first!|請先產生蜂窩陣列！
