@@ -41,6 +41,9 @@
     const MAX_WS_RECONNECT_ATTEMPTS = 5;
     const TELEMETRY_STALE_MS = 30000;
     const NEIGHBOR_IDENTITY_TIMEOUT_MS = 3000;
+    const GUIDED_PAIRING_STORAGE_KEY = 'hex_solar_guided_neighbors_v1';
+    let guidedPairingEngine = null;
+    let guidedPairingStorageFailed = false;
     const TELEMETRY_SOURCE_SIM = 'simulation';
     const TELEMETRY_SOURCE_LIVE = 'live';
     const deviceTelemetry = new Map();
@@ -235,11 +238,11 @@
         hexagons.forEach(from => {
           for (let side = 0; side < 6; side++) {
             const state = getNeighborSideState(from.id, side, now);
-            if (state.kind !== 'confirmed') continue;
+            if (state.kind !== 'confirmed' && state.kind !== 'paired') continue;
             const to = hexagons.find(hex => hex.id === state.neighbor.id);
             const key = [`${from.id}:${side}`, `${state.neighbor.id}:${state.neighbor.side}`].sort().join('|');
             if (!to || used.has(key)) continue;
-            edges.push({ from, to, fromSide: side, toSide: state.neighbor.side });
+            edges.push({ from, to, fromSide: side, toSide: state.neighbor.side, operatorPaired: state.kind === 'paired' });
             used.add(key);
           }
         });
@@ -268,7 +271,7 @@
         ctx.save();
         ctx.strokeStyle = '#96aea1';
         ctx.lineWidth = 3;
-        ctx.setLineDash([]);
+        ctx.setLineDash(e.operatorPaired ? [7, 5] : []);
         ctx.beginPath();
         ctx.moveTo(e.from.centerX, e.from.centerY);
         ctx.lineTo(e.to.centerX, e.to.centerY);
@@ -584,7 +587,7 @@
       return !record.lastReport || identity.ageMs + Math.max(0, now - record.lastReport) >= NEIGHBOR_IDENTITY_TIMEOUT_MS;
     }
 
-    function getNeighborSideState(id, side, now = Date.now()) {
+    function getAutomaticNeighborSideState(id, side, now = Date.now()) {
       const record = deviceTelemetry.get(id);
       const state = (kind, label, neighbor = null) => ({ kind, label, neighbor });
       if (!record || record.source !== TELEMETRY_SOURCE_LIVE) return state('unavailable', 'No live identity data');
@@ -593,10 +596,10 @@
       if (isRecordStale(record)) return state('stale', 'Node telemetry stale');
       if (!record.halls) return state('unavailable', 'Hall data unavailable');
       if (!record.halls[side]) return state('clear', 'clear');
-      if (record.neighborDetection === 'disabled') return state('disabled', 'Detected; identity hardware disabled');
+      if (record.neighborDetection === 'disabled') return state('disabled', 'Detected; use guided pairing');
       if (record.neighborDetection === 'hardware_error') return state('hardware_error', 'Detected; identity hardware error');
       if (record.neighborDetection === 'invalid') return state('invalid', 'Invalid neighbor data');
-      if (record.neighborDetection !== 'ready') return state('unavailable', 'Detected; identity hardware unavailable');
+      if (record.neighborDetection !== 'ready') return state('unavailable', 'Detected; use guided pairing');
       if (!currentNodeIdentity(record)) return state('invalid', 'Invalid node identity');
       const neighbor = record.edgeNeighbors?.[side];
       if (!neighbor) return state('awaiting_identity', 'Detected; awaiting identity');
@@ -618,14 +621,27 @@
       return state('confirmed', 'Confirmed', neighbor);
     }
 
+    function getNeighborSideState(id, side, now = Date.now()) {
+      const automatic = getAutomaticNeighborSideState(id, side, now);
+      if (automatic.kind === 'confirmed') return automatic;
+      const paired = getGuidedPairingEngine()?.getSide(id, side, now);
+      if (!paired) return automatic;
+      const peerAutomatic = getAutomaticNeighborSideState(paired.neighbor.id, paired.neighbor.side, now);
+      const conflictsWithAutomatic = peerAutomatic.kind === 'confirmed'
+        && (peerAutomatic.neighbor.id !== id || peerAutomatic.neighbor.side !== side);
+      const kind = conflictsWithAutomatic ? 'pairing_required' : paired.kind;
+      return { ...paired, kind, label: kind === 'paired' ? 'Paired by operator; Hall active'
+        : guidedPairingStorageFailed ? 'Pairing inactive; confirm again' : 'Saved pairing; confirm again' };
+    }
+
     function renderNeighborDetails(id) {
       const record = deviceTelemetry.get(id);
       if (!record) return '';
       const readiness = {
-        disabled: 'Disabled; install and enable edge identity hardware',
+        disabled: 'Guided pairing available',
         ready: 'Ready', hardware_error: 'Identity hardware error', invalid: 'Invalid neighbor data',
-        unavailable: 'Identity hardware unavailable'
-      }[record.neighborDetection] || 'Identity hardware unavailable';
+        unavailable: 'Guided pairing available'
+      }[record.neighborDetection] || 'Guided pairing available';
       const rows = Array.from({ length: 6 }, (_, side) => {
         const state = getNeighborSideState(id, side);
         const destination = state.neighbor ? ` → HEX-${String(state.neighbor.id).padStart(2, '0')} D${state.neighbor.side}` : '';
@@ -634,7 +650,7 @@
       return `<b style="color:var(--accent-on)">Hall D0–D5：</b>${record.halls ? record.halls.map((active, side) => `D${side}: ${active ? 'DETECTED' : 'clear'}`).join(' · ') : '--'}<br>
         <b style="color:var(--accent-on)">Neighbor detection:</b> <span>${readiness}</span>
         <div style="margin:6px 0" aria-live="polite">${rows}</div>
-        <small>Confirmed neighbors require matching identities and active Hall sensors on both modules. Display positions are configured coordinates.</small>`;
+        <small>Guided pairings are checked by the operator and monitored by Hall sensors. Automatic confirmation requires optional edge identity hardware. Display positions are configured coordinates.</small>`;
     }
 
     function refreshNeighborDetails() {
@@ -648,10 +664,194 @@
     }
 
     function refreshNeighborTopology() {
+      updateGuidedPairing();
+      refreshGuidedPairingDialog();
       if (!hardwareSessionStarted) return;
       buildEdges();
       refreshNeighborDetails();
       drawAll();
+    }
+
+    function getGuidedPairingEngine() {
+      if (guidedPairingEngine || !window.HallNeighborPairing) return guidedPairingEngine;
+      let savedLinks = [];
+      try {
+        const raw = localStorage.getItem(GUIDED_PAIRING_STORAGE_KEY);
+        const saved = raw && raw.length <= 16384 ? JSON.parse(raw) : null;
+        if (saved?.version === 1 && Array.isArray(saved.links) && saved.links.length <= 24) savedLinks = saved.links;
+      } catch (_) { guidedPairingStorageFailed = true; }
+      guidedPairingEngine = HallNeighborPairing.create({ savedLinks, freshMs: 3000, settleMs: 1500, sessionMs: 60000 });
+      return guidedPairingEngine;
+    }
+
+    function guidedPairingRecords() {
+      return [...deviceTelemetry.values()].filter(record => record.pairingEligible !== false);
+    }
+
+    function guidedPairingConnected() {
+      return isHardwareConnected && Boolean((serialPort && serialWriter)
+        || (wsClient && wsClient.readyState === WebSocket.OPEN));
+    }
+
+    function updateGuidedPairing() {
+      getGuidedPairingEngine()?.update(guidedPairingRecords(), guidedPairingConnected(), Date.now());
+    }
+
+    function saveGuidedPairings() {
+      try {
+        localStorage.setItem(GUIDED_PAIRING_STORAGE_KEY, JSON.stringify({ version: 1, links: getGuidedPairingEngine().exportSavedLinks() }));
+        guidedPairingStorageFailed = false;
+        return true;
+      } catch (_) {
+        guidedPairingStorageFailed = true;
+        return false;
+      }
+    }
+
+    function guidedPairingReason(reason) {
+      return {
+        waiting_for_two_edges: 'Attach exactly one pair of module edges.',
+        settling: 'Two edges detected; keep them attached while readings settle.',
+        awaiting_confirmation: 'Check both physical module labels, then confirm this pairing.',
+        gateway_disconnected: 'Connect a real USB or WebSocket gateway before pairing.',
+        node_unavailable: 'A module is unavailable. Check the gateway and try again.',
+        telemetry_stale: 'Module telemetry is stale. Wait for fresh reports and try again.',
+        module_identity_changed: 'A module identity changed. Check the physical labels again.',
+        node_restarted: 'A module restarted. Check the physical labels again.',
+        hall_cleared: 'An edge detached. Check the labels and reconfirm before using this pairing.',
+        unexpected_node: 'The set of modules changed. Restart pairing with all modules online.',
+        too_many_edges: 'More than two edges changed. Detach the target pair and restart.',
+        same_module_edges: 'Both changed edges belong to one module. Detach them and restart.',
+        edge_already_paired: 'An edge already belongs to a saved pairing. Forget it first if the arrangement changed.',
+        modules_already_paired: 'These modules already have a pairing. Check the saved pair first.',
+        pairing_session_expired: 'Pairing timed out. Detach the target pair and start again.',
+        confirmation_required: 'Check the physical module labels and explicitly reconfirm.',
+        invalid_saved_link: 'The saved pairing is invalid.',
+        link_not_found: 'This pairing is no longer available.',
+        not_ready: 'Wait for two stable edge detections before confirming.',
+        pairing_in_progress: 'Finish or cancel the current pairing first.',
+        need_two_live_modules: 'At least two modules need fresh live Hall reports.',
+        session_cancelled: 'Pairing cancelled.',
+        disconnected: 'Connect a real USB or WebSocket gateway before pairing.'
+      }[reason] || 'Detach the target pair, start pairing, then attach only those two edges.';
+    }
+
+    function pairingEndpointLabel(endpoint) {
+      return `HEX-${String(endpoint.id).padStart(2, '0')} D${endpoint.side}`;
+    }
+
+    function openNeighborPairingModal() {
+      if (!checkPermission('control', 'Pair neighbors')) return;
+      if (!getGuidedPairingEngine()) { showToast('Guided pairing is unavailable. Reload the console.'); return; }
+      openModal('Pair neighbors', `<div id="guidedPairingDialog" style="font-size:13px;line-height:1.7">
+        <p>Use the existing Hall sensors to pair modules one connection at a time. Check the physical module labels before confirming; Hall sensors cannot read a module ID.</p>
+        <ol style="padding-left:20px"><li>Keep all modules online. Detach the two target edges, then select Start pairing.</li><li>Attach exactly one pair of edges and keep all other connections unchanged.</li><li>Check the two module labels shown below, then select Confirm pairing.</li></ol>
+        <div style="padding:12px;border:1px solid var(--border-cyan);border-radius:6px">
+          <div id="guidedPairingStatus" role="status" aria-live="polite"></div>
+          <strong id="guidedPairingCandidate" style="display:block;margin:8px 0"></strong>
+          <div class="action-group" style="flex-wrap:wrap">
+            <button type="button" class="toolbar-btn" id="btnStartGuidedPairing" onclick="startGuidedPairing()">Start pairing</button>
+            <button type="button" class="toolbar-btn primary" id="btnConfirmGuidedPairing" onclick="confirmGuidedPairing()" disabled>Confirm pairing</button>
+            <button type="button" class="toolbar-btn" id="btnCancelGuidedPairing" onclick="cancelGuidedPairing()">Cancel pending pairing</button>
+          </div>
+        </div>
+        <h3 style="font-size:14px;margin:18px 0 8px">Operator pairings</h3>
+        <div id="guidedPairingLinks"></div>
+        <p id="guidedPairingStorage" style="font-size:12px;color:var(--text-secondary)"></p>
+        <small>Pairings are confirmed by the operator. Detaching, rebooting, stale data or a lost gateway connection requires explicit reconfirmation. A quick swap between telemetry reports may go undetected; always check the module labels after rearranging the array.</small>
+      </div>`, '<button type="button" class="toolbar-btn" onclick="closeModal()">關閉</button>');
+      updateGuidedPairing();
+      refreshGuidedPairingDialog();
+    }
+
+    function refreshGuidedPairingDialog() {
+      const dialog = document.getElementById('guidedPairingDialog');
+      if (!dialog || !document.getElementById('modalRoot').classList.contains('active')) return;
+      const engine = getGuidedPairingEngine();
+      if (!engine) return;
+      const now = Date.now();
+      const session = engine.getSession(now);
+      const setText = (element, text) => {
+        if (element._pairingText !== text) { element.textContent = text; element._pairingText = text; }
+      };
+      setText(document.getElementById('guidedPairingStatus'), guidedPairingConnected()
+        ? guidedPairingReason(session.reason) : guidedPairingReason('gateway_disconnected'));
+      setText(document.getElementById('guidedPairingCandidate'), session.endpoints
+        ? session.endpoints.map(pairingEndpointLabel).join(' ↔ ') : '');
+      document.getElementById('btnConfirmGuidedPairing').disabled = session.state !== 'candidate' || !guidedPairingConnected();
+      setText(document.getElementById('btnStartGuidedPairing'), ['waiting', 'candidate'].includes(session.state) ? 'Restart pairing' : 'Start pairing');
+      const list = document.getElementById('guidedPairingLinks');
+      const links = engine.getLinks(now);
+      const ids = new Set(links.map(link => String(link.id)));
+      if (!links.length) ids.add('empty');
+      [...list.children].forEach(row => { if (!ids.has(row.dataset.linkId)) row.remove(); });
+      links.forEach(link => {
+        let row = [...list.children].find(element => element.dataset.linkId === String(link.id));
+        if (!row) {
+          row = document.createElement('div');
+          row.dataset.linkId = String(link.id);
+          row.style.cssText = 'padding:12px 0;border-bottom:1px solid var(--border-cyan)';
+          row.innerHTML = '<strong data-pairing-endpoints></strong><div data-pairing-confidence></div><div data-pairing-reason style="font-size:12px"></div><div class="action-group" style="flex-wrap:wrap;margin-top:6px"><button type="button" class="toolbar-btn" data-pairing-reconfirm>Reconfirm after checking module labels</button><button type="button" class="toolbar-btn danger" data-pairing-forget>Forget</button></div>';
+          row.querySelector('[data-pairing-reconfirm]').addEventListener('click', () => reconfirmGuidedPairing(link.id));
+          row.querySelector('[data-pairing-forget]').addEventListener('click', () => forgetGuidedPairing(link.id));
+          list.appendChild(row);
+        }
+        setText(row.querySelector('[data-pairing-endpoints]'), `${pairingEndpointLabel(link.a)} ↔ ${pairingEndpointLabel(link.b)}`);
+        setText(row.querySelector('[data-pairing-confidence]'), link.active ? 'Paired by operator; Hall active'
+          : guidedPairingStorageFailed ? 'Pairing inactive; confirm again' : 'Saved pairing; confirm again');
+        setText(row.querySelector('[data-pairing-reason]'), link.active ? '' : guidedPairingReason(link.reason));
+      });
+      if (!links.length && !list.querySelector('[data-link-id="empty"]')) {
+        const empty = document.createElement('p');
+        empty.dataset.linkId = 'empty';
+        empty.textContent = 'No operator pairings yet.';
+        list.appendChild(empty);
+      }
+      setText(document.getElementById('guidedPairingStorage'), guidedPairingStorageFailed
+        ? 'Browser storage is unavailable; changes are only active for this session.'
+        : 'Pairings are saved only in this browser. Reloading requires checking the labels and reconfirming.');
+    }
+
+    function startGuidedPairing() {
+      if (!checkPermission('control', 'Pair neighbors')) return;
+      const engine = getGuidedPairingEngine();
+      if (!engine) return;
+      engine.cancel();
+      const result = engine.start(guidedPairingRecords(), guidedPairingConnected(), Date.now());
+      if (!result.ok) showToast(guidedPairingReason(result.reason));
+      refreshNeighborTopology();
+    }
+
+    function confirmGuidedPairing() {
+      if (!checkPermission('control', 'Pair neighbors')) return;
+      updateGuidedPairing();
+      const result = getGuidedPairingEngine()?.confirm(Date.now());
+      if (!result?.ok) showToast(guidedPairingReason(result?.reason));
+      else showToast(saveGuidedPairings() ? 'Operator pairing saved in this browser.' : 'Pairing active for this session; browser storage is unavailable.');
+      refreshNeighborTopology();
+    }
+
+    function cancelGuidedPairing() {
+      getGuidedPairingEngine()?.cancel();
+      refreshNeighborTopology();
+    }
+
+    function reconfirmGuidedPairing(id) {
+      if (!checkPermission('control', 'Pair neighbors')) return;
+      updateGuidedPairing();
+      const result = getGuidedPairingEngine()?.reconfirm(id, Date.now());
+      if (!result?.ok) showToast(guidedPairingReason(result?.reason));
+      else showToast(saveGuidedPairings() ? 'Operator pairing reconfirmed.' : 'Pairing active for this session; browser storage is unavailable.');
+      refreshNeighborTopology();
+    }
+
+    function forgetGuidedPairing(id) {
+      if (!checkPermission('control', 'Pair neighbors')) return;
+      const result = getGuidedPairingEngine()?.remove(id);
+      if (!result?.ok) showToast(guidedPairingReason(result?.reason));
+      else showToast(saveGuidedPairings() ? 'Operator pairing forgotten.' : 'Pairing removed for this session; browser storage could not be updated.');
+      refreshNeighborTopology();
+      document.getElementById('btnStartGuidedPairing')?.focus();
     }
 
     function startHardwareSession() {
@@ -1148,6 +1348,7 @@
       if (generation !== wsConnectGeneration) return;
       const previous = wsClient;
       wsClient = null;
+      if (previous) setHardwareConnected(false);
       previous?.close();
       if (location.protocol === 'https:' && url.startsWith('ws:')) {
         wsShouldReconnect = false;
@@ -1259,7 +1460,7 @@
     }
 
     // ------------------- 遙測封包解析 (MQTT nodes -> gateway -> Web) -------------------
-    function parseHardwarePacket(rawLine) {
+    function parseHardwarePacket(rawLine, options = {}) {
       rawLine = rawLine.trim();
       if (!rawLine) return;
 
@@ -1309,6 +1510,8 @@
           telemetry.halls = hallMask === null ? null : Array.from({ length: 6 }, (_, i) => Boolean(hallMask & (1 << i)));
           telemetry.configBits = Number.isInteger(data.config_bits) ? data.config_bits : null;
           telemetry.bootId = validNeighborUint(data.boot_id, true) ? data.boot_id : null;
+          telemetry.sequence = validNeighborUint(data.seq) ? data.seq : null;
+          telemetry.pairingEligible = options.demo !== true;
           // Missing or malformed identity data clears earlier claims; Hall presence cannot fill them in.
           Object.assign(telemetry, readNeighborPayload(data));
           if (!deviceIds.includes(data.id)) {
@@ -1438,7 +1641,7 @@
         uptime: Math.floor(Math.random() * 3600)
       });
 
-      parseHardwarePacket(demoPacket);
+      parseHardwarePacket(demoPacket, { demo: true });
       showToast(`🧪 已注入 HEX-0${randomNodeId} 模擬測試封包 (電壓: ${volt}V, 溫度: ${temp}°C)`);
     }
 
@@ -1533,6 +1736,7 @@
       mqttEdgeIdentity: { path: 'firmware/esp32_mqtt_solar_node/EdgeIdentity.h', label: 'EdgeIdentity.h' },
       mqttEdgeUart: { path: 'firmware/esp32_mqtt_solar_node/Sc16is752.h', label: 'Sc16is752.h' },
       neighborGuide: { path: 'firmware/NEIGHBOR-DETECTION.md', label: 'Neighbor detection wiring' },
+      guidedNeighborGuide: { path: 'firmware/GUIDED-NEIGHBORS.md', label: 'Guided neighbor pairing (no extra hardware)' },
       mqttGuide: { path: 'firmware/MQTT.md', label: 'UNO R4 / MQTT setup' },
       gateway: { path: 'firmware/esp32_base_station_gateway/esp32_base_station_gateway.ino', label: 'Legacy gateway .ino' },
       gatewayConfig: { path: 'firmware/esp32_base_station_gateway/GatewayConfig.h', label: 'GatewayConfig.h' },
@@ -2073,6 +2277,7 @@
 
     // ==================== Modal 視窗 ====================
     function openModal(title, bodyHtml, footerHtml) {
+      getGuidedPairingEngine()?.cancel();
       if (!document.getElementById('modalRoot').classList.contains('active')) {
         modalReturnFocus = document.activeElement;
         const row = modalReturnFocus.closest('#deviceTableBody tr');
@@ -2096,6 +2301,7 @@
       });
     }
     function closeModal() {
+      getGuidedPairingEngine()?.cancel();
       document.getElementById('modalRoot').classList.remove('active');
       const loginVisible = !document.getElementById('loginOverlay').classList.contains('hidden');
       document.querySelector('.app-wrapper').inert = loginVisible;
@@ -2891,6 +3097,7 @@
       <b style="color:var(--accent-on)">MAC 位址：</b>${escapeHtml(record.mac)}<br>
       <b style="color:var(--accent-on)">資料來源：</b>${record.source === TELEMETRY_SOURCE_LIVE ? 'Live telemetry' : 'Simulation sample'}<br>
       <div id="deviceNeighborDetails" data-node-id="${id}">${renderNeighborDetails(id)}</div>
+      <button type="button" class="toolbar-btn" style="margin:8px 0" onclick="openNeighborPairingModal()">Pair neighbors</button><br>
       <b style="color:var(--accent-on)">D6–D8 configuration：</b>${record.configBits === null || record.configBits === undefined ? 'Manual / unavailable' : `D6=${record.configBits & 1}, D7=${(record.configBits >> 1) & 1}, D8=${(record.configBits >> 2) & 1} (1 = grounded); ID=${record.id}`}<br>
       <b style="color:var(--accent-on)">Power control：</b>${record.powerControlAvailable ? 'Configured' : 'Unavailable'}<br>
     </div>

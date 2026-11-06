@@ -1,5 +1,10 @@
 # UNO access point / MQTT verification
 
+The current [verification record](NEIGHBOR-VALIDATION.md) covers both
+[guided pairing with existing hardware](GUIDED-NEIGHBORS.md) and the
+[optional automatic edge-identity extension](NEIGHBOR-DETECTION.md).
+The results below describe the earlier Hall-only/AP baseline.
+
 Date: 2026-11-03. This record covers the UNO-hosted AP and XIAO MQTT clients. No board was flashed or reset. No physical Hall, radio-range, power-consumption, AP capacity or real Mosquitto/UNO integration measurement is claimed.
 
 ## Firmware builds

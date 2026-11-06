@@ -30,7 +30,9 @@ To customize the network, copy `AccessPointSecrets.example.h` to ignored `Access
 
 Configure each node's `NodeConfig.h`: assign a unique `MANUAL_NODE_ID` from 1 through 8 and confirm GPIO mapping, Hall polarity and output voltage. D0–D5 remain six digital Hall inputs with 25 ms debounce; D6–D8 hardware-ID mode remains optional and disabled. No relay is assumed. Enable **USB CDC On Boot** on the XIAO ESP32-C3 so logging does not drive the wired D6/D7 pins.
 
-For automatic identification of the module attached to each edge, install the optional six-port UART hardware and enable it in `NodeConfig.h`. See [NEIGHBOR-DETECTION.md](NEIGHBOR-DETECTION.md) for the three SC16IS752 bridges per module, contact wiring, configuration and live status. Hall-only operation remains the default until that hardware is fitted.
+To identify neighbors with the existing Hall switches, use **Device Management → Pair neighbors**. Attach one pair at a time and confirm the two module labels. The console saves an operator-confirmed map and asks for reconfirmation after a detected interruption. See [GUIDED-NEIGHBORS.md](GUIDED-NEIGHBORS.md). Leave `SOLAR_EDGE_IDENTITY_ENABLED` at `0`; no additional hardware or firmware change is required for guided pairing when live Hall telemetry is already working.
+
+For a future upgrade to automatic electronic identification, the optional six-port UART hardware can be enabled in `NodeConfig.h`. See [NEIGHBOR-DETECTION.md](NEIGHBOR-DETECTION.md) for its wiring. This hardware is not required for guided pairing.
 
 For the requested **five to eight XIAOs**, this program explicitly requests **nine AP stations**: eight XIAOs plus the broker computer. `APConfig::MAX_STATIONS` defaults to 9. The ordinary WiFiS3 `beginAP` API leaves the reviewed official bridge's default at five; the UNO-only `UnoAccessPoint.h` helper instead supplies the bridge command's fifth `max_connection` argument. This retains the standard UNO connectivity firmware and uses its existing command interface. [Official bridge AP command](https://raw.githubusercontent.com/arduino/uno-r4-wifi-usb-bridge/main/UNOR4USBBridge/cmds_wifi_softAP.h), [Espressif ESP32-S3 AP station configuration](https://docs.espressif.com/projects/esp-idf/en/v4.4.5/esp32s3/api-guides/wifi.html)
 
@@ -95,7 +97,7 @@ Substitute node numbers 1–8. Telemetry, events, commands and ACKs are **not re
 
 The UNO validates node IDs, topic/payload matching, sequence order, Hall-mask range and required JSON types. Fresh duplicate IDs from different node MACs are reported. Node data expires after 15 seconds without new telemetry. Reconnecting does not replay buffered history. No offline historical data store is implemented.
 
-`set_power` returns failure on the default Hall-only node because no relay is configured. Electrical measurements remain JSON null and display as `--`. Coordinates are configured display positions. Hall presence alone does not identify neighboring modules; the optional edge UART exchange supplies identities, and the console confirms fresh reciprocal reports. Legacy packets without edge identities remain Hall-only. Neither detection mode proves structural strength or a working power connection. The original nodes using ESP-NOW cannot communicate with this MQTT gateway until reflashed.
+`set_power` returns failure on the default Hall-only node because no relay is configured. Electrical measurements remain JSON null and display as `--`. Coordinates are configured display positions. Hall presence alone does not identify neighboring modules: guided pairing uses explicit operator confirmation, while the optional edge UART exchange supplies identities electronically. The console distinguishes operator-paired and hardware-confirmed links. Neither mode proves structural strength or a working power connection. The original nodes using ESP-NOW cannot communicate with this MQTT gateway until reflashed.
 
 ## Validation
 

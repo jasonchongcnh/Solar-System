@@ -314,6 +314,7 @@
           <div class="page-header">
             <h1 class="page-title">Device Management 裝置管理</h1>
             <div class="action-group">
+              <button class="toolbar-btn" id="btnPairNeighbors" onclick="openNeighborPairingModal()">Pair neighbors</button>
               <button class="toolbar-btn primary" onclick="addDevice()">+ 新增裝置</button>
               <button class="toolbar-btn" onclick="exportDevices()">⤓ 匯出</button>
               <button class="toolbar-btn" onclick="refreshDevices()">⟳ 重新整理</button>
@@ -788,6 +789,7 @@
     </div>
   </div>
 
+  <script src="assets/js/hall-neighbor-pairing.js"></script>
   <script src="assets/js/management-console.js"></script>
   <script src="assets/js/management-console-i18n.js"></script>
   <script src="assets/js/vendor/lucide.min.js"></script>

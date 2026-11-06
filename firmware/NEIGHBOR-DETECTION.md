@@ -1,4 +1,8 @@
-# Automatic identification of attached modules
+# Optional hardware: automatic identification of attached modules
+
+**Keeping the existing hardware?** Use [guided Hall pairing](GUIDED-NEIGHBORS.md)
+to confirm and save the module ID on each attached edge. The optional hardware
+below is only needed for automatic electronic identification.
 
 This extension adds a separate identity channel at each edge of the XIAO ESP32-C3
 MQTT nodes. A Hall switch still reports magnetic presence. The new edge channel

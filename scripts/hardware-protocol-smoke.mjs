@@ -27,7 +27,6 @@ let browser;
 try {
   try { browser = await playwright.chromium.launch({ headless: true }); }
   catch (error) {
-    if (process.platform !== 'win32') throw error;
     browser = await playwright.chromium.launch({ channel: 'chrome', headless: true });
   }
   const page = await browser.newPage();

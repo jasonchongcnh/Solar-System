@@ -102,7 +102,7 @@ async function auditLocalizedConsole(page, label) {
     appendTerminalLog('rx', 'RX: {"status":"ONLINE","cmd":"ping"}');
   });
   const dialogs = [
-    ['device', () => viewDevice(1)], ['account', () => openUserMenu()],
+    ['device', () => viewDevice(1)], ['pairing', () => openNeighborPairingModal()], ['account', () => openUserMenu()],
     ['password', () => openChangePasswordModal()], ['gateway', () => openWsConnectModal()],
     ['terminal', () => openSerialTerminalModal()], ['notifications', () => openNotifications()]
   ];

@@ -595,6 +595,58 @@ stale|stale|逾時
 資料來源：|Data Source:
 Hall D0–D5：|Hall D0–D5:|霍爾感測 D0–D5：
 Neighbor detection:|Neighbor detection:|鄰接模組偵測：
+Pair neighbors|Pair neighbors|配對鄰接模組
+Guided pairing available|Guided pairing available|可使用引導配對
+Detected; use guided pairing|Detected; use guided pairing|已偵測；請使用引導配對
+Paired by operator; Hall active|Paired by operator; Hall active|已由操作員配對；霍爾仍偵測到磁鐵
+Saved pairing; confirm again|Saved pairing; confirm again|已儲存的配對；請重新確認
+Pairing inactive; confirm again|Pairing inactive; confirm again|配對已失效；請重新確認
+Guided pairings are checked by the operator and monitored by Hall sensors. Automatic confirmation requires optional edge identity hardware. Display positions are configured coordinates.|Guided pairings are checked by the operator and monitored by Hall sensors. Automatic confirmation requires optional edge identity hardware. Display positions are configured coordinates.|引導配對由操作員核對，並由霍爾感測器持續監測。自動確認需加裝選配的邊緣識別硬體。畫面位置使用預先設定的座標。
+Guided neighbor pairing (no extra hardware)|Guided neighbor pairing (no extra hardware)|引導式鄰接模組配對（無需新增硬體）
+Use the existing Hall sensors to pair modules one connection at a time. Check the physical module labels before confirming; Hall sensors cannot read a module ID.|Use the existing Hall sensors to pair modules one connection at a time. Check the physical module labels before confirming; Hall sensors cannot read a module ID.|使用現有霍爾感測器，逐一配對模組連接。確認前請核對實體模組標籤；霍爾感測器無法讀取模組編號。
+Keep all modules online. Detach the two target edges, then select Start pairing.|Keep all modules online. Detach the two target edges, then select Start pairing.|保持所有模組連線。先分開要配對的兩條邊，再選取「開始配對」。
+Attach exactly one pair of edges and keep all other connections unchanged.|Attach exactly one pair of edges and keep all other connections unchanged.|只連接一對邊緣，保持其他連接不變。
+Check the two module labels shown below, then select Confirm pairing.|Check the two module labels shown below, then select Confirm pairing.|核對下方顯示的兩個實體模組標籤，再選取「確認配對」。
+Start pairing|Start pairing|開始配對
+Restart pairing|Restart pairing|重新開始配對
+Confirm pairing|Confirm pairing|確認配對
+Cancel pending pairing|Cancel pending pairing|取消正在進行的配對
+Operator pairings|Operator pairings|操作員配對記錄
+Reconfirm after checking module labels|Reconfirm after checking module labels|核對實體模組標籤後重新確認
+Forget|Forget|移除配對
+No operator pairings yet.|No operator pairings yet.|尚無操作員配對記錄。
+Browser storage is unavailable; changes are only active for this session.|Browser storage is unavailable; changes are only active for this session.|瀏覽器儲存空間無法使用；變更只在本次工作階段生效。
+Pairings are saved only in this browser. Reloading requires checking the labels and reconfirming.|Pairings are saved only in this browser. Reloading requires checking the labels and reconfirming.|配對只儲存在此瀏覽器。重新載入後，必須核對標籤並重新確認。
+Pairings are confirmed by the operator. Detaching, rebooting, stale data or a lost gateway connection requires explicit reconfirmation. A quick swap between telemetry reports may go undetected; always check the module labels after rearranging the array.|Pairings are confirmed by the operator. Detaching, rebooting, stale data or a lost gateway connection requires explicit reconfirmation. A quick swap between telemetry reports may go undetected; always check the module labels after rearranging the array.|配對由操作員確認。分開模組、重新啟動、資料逾時或網關斷線後，都必須重新確認。兩次遙測之間的快速交換可能無法偵測；調整陣列後務必核對實體標籤。
+Attach exactly one pair of module edges.|Attach exactly one pair of module edges.|請只連接一對模組邊緣。
+Two edges detected; keep them attached while readings settle.|Two edges detected; keep them attached while readings settle.|已偵測到兩條邊；請保持連接並等待讀數穩定。
+Check both physical module labels, then confirm this pairing.|Check both physical module labels, then confirm this pairing.|請核對兩個實體模組標籤，再確認此配對。
+Connect a real USB or WebSocket gateway before pairing.|Connect a real USB or WebSocket gateway before pairing.|配對前請連接實體 USB 或 WebSocket 網關。
+A module is unavailable. Check the gateway and try again.|A module is unavailable. Check the gateway and try again.|有模組無法使用。請檢查網關後再試。
+Module telemetry is stale. Wait for fresh reports and try again.|Module telemetry is stale. Wait for fresh reports and try again.|模組遙測已逾時。請等待新資料後再試。
+A module identity changed. Check the physical labels again.|A module identity changed. Check the physical labels again.|模組識別資料已變更。請重新核對實體標籤。
+A module restarted. Check the physical labels again.|A module restarted. Check the physical labels again.|有模組重新啟動。請重新核對實體標籤。
+An edge detached. Check the labels and reconfirm before using this pairing.|An edge detached. Check the labels and reconfirm before using this pairing.|有邊緣已分開。使用此配對前，請核對標籤並重新確認。
+The set of modules changed. Restart pairing with all modules online.|The set of modules changed. Restart pairing with all modules online.|模組清單已變更。請讓所有模組連線後重新配對。
+More than two edges changed. Detach the target pair and restart.|More than two edges changed. Detach the target pair and restart.|有超過兩條邊變更。請分開目標邊緣後重新開始。
+Both changed edges belong to one module. Detach them and restart.|Both changed edges belong to one module. Detach them and restart.|兩條變更的邊屬於同一模組。請先分開，再重新開始。
+An edge already belongs to a saved pairing. Forget it first if the arrangement changed.|An edge already belongs to a saved pairing. Forget it first if the arrangement changed.|此邊緣已有配對記錄。若排列已變更，請先移除舊配對。
+These modules already have a pairing. Check the saved pair first.|These modules already have a pairing. Check the saved pair first.|這兩個模組已有配對。請先檢查既有記錄。
+Pairing timed out. Detach the target pair and start again.|Pairing timed out. Detach the target pair and start again.|配對已逾時。請分開目標邊緣後重新開始。
+Check the physical module labels and explicitly reconfirm.|Check the physical module labels and explicitly reconfirm.|請核對實體模組標籤，然後重新確認。
+The saved pairing is invalid.|The saved pairing is invalid.|儲存的配對無效。
+This pairing is no longer available.|This pairing is no longer available.|此配對已無法使用。
+Wait for two stable edge detections before confirming.|Wait for two stable edge detections before confirming.|請等待兩條邊的偵測結果穩定後再確認。
+Finish or cancel the current pairing first.|Finish or cancel the current pairing first.|請先完成或取消目前的配對。
+At least two modules need fresh live Hall reports.|At least two modules need fresh live Hall reports.|至少需要兩個模組提供最新的即時霍爾資料。
+Pairing cancelled.|Pairing cancelled.|配對已取消。
+Detach the target pair, start pairing, then attach only those two edges.|Detach the target pair, start pairing, then attach only those two edges.|請先分開目標邊緣、開始配對，再只連接這一對邊緣。
+Guided pairing is unavailable. Reload the console.|Guided pairing is unavailable. Reload the console.|無法使用引導配對。請重新載入控制台。
+Operator pairing saved in this browser.|Operator pairing saved in this browser.|操作員配對已儲存在此瀏覽器。
+Pairing active for this session; browser storage is unavailable.|Pairing active for this session; browser storage is unavailable.|配對只在本次工作階段生效；瀏覽器儲存空間無法使用。
+Operator pairing reconfirmed.|Operator pairing reconfirmed.|操作員配對已重新確認。
+Operator pairing forgotten.|Operator pairing forgotten.|操作員配對已移除。
+Pairing removed for this session; browser storage could not be updated.|Pairing removed for this session; browser storage could not be updated.|配對已在本次工作階段移除；無法更新瀏覽器儲存資料。
 Neighbor detection wiring|Neighbor detection wiring|鄰接模組偵測接線
 No live identity data|No live identity data|尚無即時識別資料
 Gateway disconnected|Gateway disconnected|網關已斷線
