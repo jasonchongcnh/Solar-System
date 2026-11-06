@@ -197,6 +197,120 @@ void eightNodeTests() {
   }
   check(Mock::apStations == 9 && Mock::beginAPCalls == 0, "eight-node application test retains requested nine-station AP configuration");
 }
+JsonDocument identityTelemetry(unsigned sequence = 1) {
+  JsonDocument doc;
+  deserializeJson(doc, telemetry(sequence));
+  doc["neighbor_detection"] = "ready";
+  JsonArray peers = doc["edge_neighbors"].to<JsonArray>();
+  for (unsigned i = 0; i < 6; ++i) peers.add(nullptr);
+  JsonObject peer = peers[0].to<JsonObject>();
+  peer["id"] = 2; peer["side"] = 3; peer["boot_id"] = 23;
+  peer["mac"] = "02:00:00:AA:00:02"; peer["age_ms"] = 10;
+  return doc;
+}
+void edgeIdentityTests() {
+  reset(); setup(); loop();
+  const std::string topic = std::string(MC::ROOT) + "/nodes/1/telemetry";
+  auto receive = [&](const JsonDocument &doc) {
+    std::string json; serializeJson(doc, json); incoming(topic, json);
+  };
+  incoming(topic, telemetry());
+  JsonDocument legacy = output();
+  check(legacy["neighbor_detection"] == "disabled" && legacy["edge_neighbors"].size() == 6,
+        "legacy Hall-only packets explicitly report identity detection disabled");
+  for (unsigned side = 0; side < 6; ++side)
+    check(legacy["edge_neighbors"][side].isNull(), "Hall presence alone never creates a neighbor claim");
+  JsonDocument valid = identityTelemetry(2); receive(valid);
+  JsonDocument forwarded = output();
+  check(nodes[0].seq == 2 && forwarded["edge_neighbors"][0]["id"] == 2 &&
+        forwarded["edge_neighbors"][0]["side"] == 3 && forwarded["edge_neighbors"][0]["boot_id"] == 23,
+        "edge-local identity is preserved for reciprocal verification by the console");
+  check(forwarded["edge_neighbors"][0]["age_ms"] == 10 && forwarded["edge_neighbors"][1].isNull(),
+        "identity age and unknown directions remain explicit");
+  auto reject = [&](const JsonDocument &doc, const char *description) {
+    const auto seq = nodes[0].seq, lastSeen = nodes[0].lastSeen;
+    const size_t count = Mock::published.size();
+    Mock::now += 1; receive(doc);
+    check(nodes[0].seq == seq && nodes[0].lastSeen == lastSeen && Mock::published.size() == count, description);
+  };
+  JsonDocument bad = identityTelemetry(3); bad.remove("neighbor_detection");
+  reject(bad, "neighbor list without hardware state cannot refresh node state");
+  bad = identityTelemetry(3); bad.remove("edge_neighbors");
+  reject(bad, "hardware state without neighbor list is rejected");
+  bad = identityTelemetry(3); bad["neighbor_detection"] = nullptr;
+  reject(bad, "null hardware state is not legacy telemetry");
+  bad = identityTelemetry(3); bad["neighbor_detection"] = "guessed";
+  reject(bad, "unknown hardware state is rejected");
+  for (const char *state : {"disabled", "hardware_error"}) {
+    bad = identityTelemetry(3); bad["neighbor_detection"] = state;
+    reject(bad, "unavailable hardware cannot claim a physical neighbor");
+  }
+  bad = identityTelemetry(3); bad["edge_neighbors"].remove(5);
+  reject(bad, "neighbor list must cover exactly six directions");
+  bad = identityTelemetry(3); bad["edge_neighbors"][1] = true;
+  reject(bad, "non-null neighbor entries must be objects");
+  bad = identityTelemetry(3); bad["hall_mask"] = 4;
+  reject(bad, "clear local Hall direction cannot carry an identity claim");
+  for (const int id : {0, 1, 9}) {
+    bad = identityTelemetry(3); bad["edge_neighbors"][0]["id"] = id;
+    reject(bad, "neighbor IDs must be a different legal module ID");
+  }
+  for (const char *field : {"id", "side", "boot_id", "age_ms"}) {
+    bad = identityTelemetry(3); bad["edge_neighbors"][0][field] = true;
+    reject(bad, "neighbor integer fields cannot be JSON booleans");
+  }
+  bad = identityTelemetry(3); bad["edge_neighbors"][0]["side"] = 6;
+  reject(bad, "neighbor side must be between zero and five");
+  bad = identityTelemetry(3); bad["edge_neighbors"][0]["boot_id"] = 0;
+  reject(bad, "zero neighbor boot session is rejected");
+  bad = identityTelemetry(3); bad["edge_neighbors"][0]["age_ms"] = 3000;
+  reject(bad, "expired edge identity cannot be forwarded as a fresh claim");
+  bad = identityTelemetry(3); bad["edge_neighbors"][0]["age_ms"] = -1;
+  reject(bad, "negative edge age is rejected");
+  for (const char *mac : {"02:00:00:00:00:01", "FF:FF:FF:FF:FF:FF", "01:00:00:00:00:02",
+                          "00:00:00:00:00:00", "02:00:00:XX:00:02", "02-00-00-AA-00-02"}) {
+    bad = identityTelemetry(3); bad["edge_neighbors"][0]["mac"] = mac;
+    reject(bad, "self, multicast, zero and malformed peer MACs are rejected");
+  }
+  bad = identityTelemetry(3); bad["edge_neighbors"][2] = bad["edge_neighbors"][0];
+  reject(bad, "two local sides cannot reuse the same peer endpoint");
+  bad = identityTelemetry(3); bad["edge_neighbors"][2] = bad["edge_neighbors"][0];
+  bad["edge_neighbors"][2]["side"] = 4;
+  reject(bad, "two rigid hexagonal modules cannot share multiple local sides");
+  bad = identityTelemetry(3); bad["edge_neighbors"][2] = bad["edge_neighbors"][0];
+  bad["edge_neighbors"][2]["id"] = 3;
+  reject(bad, "one physical peer MAC cannot appear under two module IDs");
+  bad = identityTelemetry(3); bad["boot_id"] = 0;
+  reject(bad, "zero reporting boot session is rejected");
+  bad = identityTelemetry(3); bad["mac"] = "02:00:00:00:ZZ:01";
+  reject(bad, "malformed reporting MAC cannot establish node identity");
+  bad = identityTelemetry(3);
+  bad["padding"] = std::string(MC::MAX_FRAME - measureJson(bad) - 50, 'x');
+  check(measureJson(bad) <= MC::MAX_FRAME, "oversized normalized event fixture fits the inbound frame limit");
+  reject(bad, "normalization cannot advance state when the emitted event would exceed its frame limit");
+
+  JsonDocument six = identityTelemetry(3); six["hall_mask"] = 63;
+  six["uptime_ms"] = UINT32_MAX; six["q"] = -128; six["r"] = 127;
+  for (unsigned side = 0; side < 6; ++side) {
+    JsonObject peer = six["edge_neighbors"][side].to<JsonObject>();
+    peer["id"] = side + 2; peer["side"] = 5-side; peer["boot_id"] = UINT32_MAX;
+    char mac[18]; snprintf(mac, sizeof(mac), "02:00:00:AA:00:%02u", side+2);
+    peer["mac"] = mac; peer["age_ms"] = 2999;
+  }
+  receive(six); JsonDocument complete = output();
+  check(nodes[0].seq == 3 && complete["edge_neighbors"].size() == 6 &&
+        complete["edge_neighbors"][5]["id"] == 7, "all six independent hardware directions survive forwarding");
+  check(measureJson(complete) <= MC::MAX_FRAME && Mock::published.back().payload.size() == measureJson(complete),
+        "complete six-neighbor JSON fits and reaches MQTT without truncation");
+  valid = identityTelemetry(4); valid["mac"] = "02:00:00:00:00:01";
+  valid["edge_neighbors"][0]["mac"] = "02:00:00:aa:00:02"; receive(valid);
+  check(output()["edge_neighbors"][0]["mac"] == "02:00:00:AA:00:02", "MAC casing is normalized for exact reciprocal comparisons");
+  valid = identityTelemetry(5); valid["neighbor_detection"] = "hardware_error";
+  for (unsigned side = 0; side < 6; ++side) valid["edge_neighbors"][side] = nullptr;
+  receive(valid);
+  check(output()["neighbor_detection"] == "hardware_error" && nodes[0].seq == 5,
+        "hardware failures remain explicit without keeping a prior neighbor identity");
+}
 int main() {
   try {
 #if defined(SOLAR_TEST_INVALID_CAPACITY)
@@ -223,7 +337,7 @@ int main() {
     Mock::now += APConfig::RESTART_MS; loop();
     check(Mock::apStarts == 0, "AP retries do not bypass credential validation");
 #else
-    startTests(); brokerFailureTests(); lostApTests(); rolloverTests(); capacityFailureTests(); telemetryAndAckTests(); eightNodeTests();
+    startTests(); brokerFailureTests(); lostApTests(); rolloverTests(); capacityFailureTests(); telemetryAndAckTests(); eightNodeTests(); edgeIdentityTests();
 #endif
     std::cout << "MQTT AP gateway behavior passed: " << checks << " checks\n";
   } catch (const std::exception &error) {

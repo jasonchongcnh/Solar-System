@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --check assets/js/theme.js && node --check assets/js/management-console.js && node --check assets/js/management-console-i18n.js && node --check assets/js/console-workspace.js && node --check scripts/build-daily-summary.mjs && node scripts/build-daily-summary.mjs && node scripts/responsive-smoke.mjs && node scripts/hardware-protocol-smoke.mjs && node scripts/quality-audit.mjs",
+    "test": "node --check assets/js/theme.js && node --check assets/js/management-console.js && node --check assets/js/management-console-i18n.js && node --check assets/js/console-workspace.js && node --check scripts/build-daily-summary.mjs && node scripts/array-path-smoke.mjs && node scripts/build-daily-summary.mjs && node scripts/responsive-smoke.mjs && node scripts/hardware-protocol-smoke.mjs && node scripts/neighbor-topology-smoke.mjs && node scripts/quality-audit.mjs",
+    "test:array": "node scripts/array-path-smoke.mjs",
     "test:hardware": "node scripts/hardware-protocol-smoke.mjs",
+    "test:neighbors": "node scripts/neighbor-topology-smoke.mjs",
     "test:quality": "node scripts/quality-audit.mjs",
     "test:locale": "node scripts/quality-audit.mjs --locale-only",
     "build:icons": "node scripts/build-icons.mjs"

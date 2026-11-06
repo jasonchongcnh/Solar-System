@@ -19,6 +19,7 @@ Live Hall-only packets display unavailable electrical measurements as `--`. Firm
 - `assets/js/theme.js` - device theme detection and saved appearance preferences
 - `assets/js/management-console.js` - console behavior
 - `assets/js/management-console-i18n.js` - English and Traditional Chinese translations
+- `assets/js/array-path.js` - exact maximum-module stroke paths for Array Lab
 - `assets/js/console-workspace.js` - telemetry charts, icons, and keyboard accessibility
 - `data/telemetry-sample.json` - structured telemetry sample used by the scheduled report
 - `scripts/build-daily-summary.mjs` - scheduled daily report generator
@@ -56,6 +57,8 @@ Optional repository variable:
 The workflow runs daily at 08:00 Hong Kong time and can also be started manually from the GitHub Actions tab.
 
 ## Regression Checks
+
+Run `npm run test:array` for dependency-free Array Lab route checks. The solver returns a single route covering the maximum possible number of enabled modules, even when the enabled array is disconnected or has branches that prevent a complete stroke. Equal-coverage routes prefer a closed loop. The page displays coverage, module order, and any enabled modules omitted from that route.
 
 Run `npm ci`, `npx playwright install chromium`, then `npm test`. The quality audit checks six viewport widths, both console languages, and both themes, captures desktop/mobile evidence, and checks WCAG A/AA rules with axe. It also tests theme persistence and all three password-protected role upgrades with isolated test accounts. Screenshots and JSON results are generated in `.artifacts/quality/`; the regression workflow saves them as an artifact. See [the quality review](docs/QUALITY.md) for the design criteria, iteration notes, and testing boundaries.
 

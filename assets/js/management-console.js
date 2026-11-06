@@ -32,6 +32,7 @@
     let terminalLogs = [];           // { type: 'rx'|'tx'|'sys'|'err', time: string, msg: string }
     let simulationInterval = null;
     let connectionHealthInterval = null;
+    let neighborHealthInterval = null;
     let wsReconnectTimer = null;
     let wsReconnectAttempts = 0;
     let wsShouldReconnect = false;
@@ -39,6 +40,7 @@
     let wsConnectGeneration = 0;
     const MAX_WS_RECONNECT_ATTEMPTS = 5;
     const TELEMETRY_STALE_MS = 30000;
+    const NEIGHBOR_IDENTITY_TIMEOUT_MS = 3000;
     const TELEMETRY_SOURCE_SIM = 'simulation';
     const TELEMETRY_SOURCE_LIVE = 'live';
     const deviceTelemetry = new Map();
@@ -227,8 +229,22 @@
 
     function buildEdges() {
       edges = [];
-      // Hall switches report contact presence, not the identity of another node.
-      if (hardwareSessionStarted) return;
+      if (hardwareSessionStarted) {
+        const used = new Set();
+        const now = Date.now();
+        hexagons.forEach(from => {
+          for (let side = 0; side < 6; side++) {
+            const state = getNeighborSideState(from.id, side, now);
+            if (state.kind !== 'confirmed') continue;
+            const to = hexagons.find(hex => hex.id === state.neighbor.id);
+            const key = [`${from.id}:${side}`, `${state.neighbor.id}:${state.neighbor.side}`].sort().join('|');
+            if (!to || used.has(key)) continue;
+            edges.push({ from, to, fromSide: side, toSide: state.neighbor.side });
+            used.add(key);
+          }
+        });
+        return;
+      }
       const directions = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
       const map = new Map();
       hexagons.forEach(h => map.set(`${h.q},${h.r}`, h.id));
@@ -263,7 +279,7 @@
 
     function findPath() {
       if (hardwareSessionStarted) {
-        showToast('Live route planning is unavailable: Hall sensors detect contact, but do not identify neighboring nodes. Configure a physical map first.');
+        showToast('Live route execution is unavailable: neighboring modules can be detected, but no inspection robot or route executor is configured.');
         return;
       }
       if (hexagons.length === 0) {
@@ -524,6 +540,120 @@
       return hasMeasurement(record, field) ? numberOr(record[field], 0).toFixed(digits) : '--';
     }
 
+    function validNeighborUint(value, nonzero = false) {
+      return Number.isInteger(value) && value >= (nonzero ? 1 : 0) && value <= 0xffffffff;
+    }
+
+    function normalizedNeighborMac(value) {
+      if (typeof value !== 'string' || !/^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(value)) return null;
+      const bytes = value.split(':').map(byte => parseInt(byte, 16));
+      return bytes.some(Boolean) && !(bytes[0] & 1) ? value.toUpperCase() : null;
+    }
+
+    function readNeighborPayload(data) {
+      const missing = data.neighbor_detection === undefined && data.edge_neighbors === undefined;
+      const unavailable = { neighborDetection: missing ? 'unavailable' : 'invalid', edgeNeighbors: null };
+      if (!['disabled', 'ready', 'hardware_error'].includes(data.neighbor_detection)
+        || !Array.isArray(data.edge_neighbors) || data.edge_neighbors.length !== 6) return unavailable;
+      const seen = new Set();
+      const seenMacs = new Set();
+      const neighbors = [];
+      for (const entry of data.edge_neighbors) {
+        if (entry === null) { neighbors.push(null); continue; }
+        if (data.neighbor_detection !== 'ready' || !Number.isInteger(data.hall_mask)
+          || !(data.hall_mask & (1 << neighbors.length)) || !entry || typeof entry !== 'object' || Array.isArray(entry)
+          || !Number.isInteger(entry.id) || entry.id < 1 || entry.id > 8 || entry.id === data.id
+          || !Number.isInteger(entry.side) || entry.side < 0 || entry.side > 5
+          || !validNeighborUint(entry.boot_id, true) || !normalizedNeighborMac(entry.mac)
+          || normalizedNeighborMac(entry.mac) === normalizedNeighborMac(data.mac)
+          || !validNeighborUint(entry.age_ms) || entry.age_ms >= NEIGHBOR_IDENTITY_TIMEOUT_MS
+          || seen.has(entry.id) || seenMacs.has(normalizedNeighborMac(entry.mac))) return { neighborDetection: 'invalid', edgeNeighbors: null };
+        seen.add(entry.id);
+        seenMacs.add(normalizedNeighborMac(entry.mac));
+        neighbors.push({ id: entry.id, side: entry.side, bootId: entry.boot_id, mac: normalizedNeighborMac(entry.mac), ageMs: entry.age_ms });
+      }
+      return { neighborDetection: data.neighbor_detection, edgeNeighbors: neighbors };
+    }
+
+    function currentNodeIdentity(record) {
+      return record && Number.isInteger(record.id) && record.id >= 1 && record.id <= 8
+        && validNeighborUint(record.bootId, true) && normalizedNeighborMac(record.mac);
+    }
+
+    function neighborIdentityExpired(record, identity, now) {
+      return !record.lastReport || identity.ageMs + Math.max(0, now - record.lastReport) >= NEIGHBOR_IDENTITY_TIMEOUT_MS;
+    }
+
+    function getNeighborSideState(id, side, now = Date.now()) {
+      const record = deviceTelemetry.get(id);
+      const state = (kind, label, neighbor = null) => ({ kind, label, neighbor });
+      if (!record || record.source !== TELEMETRY_SOURCE_LIVE) return state('unavailable', 'No live identity data');
+      if (!isHardwareConnected) return state('disconnected', 'Gateway disconnected');
+      if (record.status === 'offline') return state('offline', 'Node offline');
+      if (isRecordStale(record)) return state('stale', 'Node telemetry stale');
+      if (!record.halls) return state('unavailable', 'Hall data unavailable');
+      if (!record.halls[side]) return state('clear', 'clear');
+      if (record.neighborDetection === 'disabled') return state('disabled', 'Detected; identity hardware disabled');
+      if (record.neighborDetection === 'hardware_error') return state('hardware_error', 'Detected; identity hardware error');
+      if (record.neighborDetection === 'invalid') return state('invalid', 'Invalid neighbor data');
+      if (record.neighborDetection !== 'ready') return state('unavailable', 'Detected; identity hardware unavailable');
+      if (!currentNodeIdentity(record)) return state('invalid', 'Invalid node identity');
+      const neighbor = record.edgeNeighbors?.[side];
+      if (!neighbor) return state('awaiting_identity', 'Detected; awaiting identity');
+      if (neighborIdentityExpired(record, neighbor, now)) return state('stale', 'Neighbor identity stale', neighbor);
+      const peer = deviceTelemetry.get(neighbor.id);
+      if (!peer || peer.source !== TELEMETRY_SOURCE_LIVE) return state('waiting_peer', 'Waiting for peer telemetry', neighbor);
+      if (peer.status === 'offline') return state('offline', 'Neighbor offline', neighbor);
+      if (isRecordStale(peer)) return state('stale', 'Neighbor telemetry stale', neighbor);
+      if (!currentNodeIdentity(peer) || neighbor.bootId !== peer.bootId || neighbor.mac !== normalizedNeighborMac(peer.mac)) {
+        return state('conflict', 'Identity conflict', neighbor);
+      }
+      if (peer.neighborDetection !== 'ready' || !peer.halls) return state('waiting_peer', 'Waiting for peer confirmation', neighbor);
+      if (!peer.halls[neighbor.side]) return state('conflict', 'Hall state conflict', neighbor);
+      const reciprocal = peer.edgeNeighbors?.[neighbor.side];
+      if (!reciprocal) return state('waiting_peer', 'Waiting for peer confirmation', neighbor);
+      if (neighborIdentityExpired(peer, reciprocal, now)) return state('stale', 'Neighbor identity stale', neighbor);
+      if (reciprocal.id !== id || reciprocal.side !== side || reciprocal.bootId !== record.bootId
+        || reciprocal.mac !== normalizedNeighborMac(record.mac)) return state('conflict', 'Identity conflict', neighbor);
+      return state('confirmed', 'Confirmed', neighbor);
+    }
+
+    function renderNeighborDetails(id) {
+      const record = deviceTelemetry.get(id);
+      if (!record) return '';
+      const readiness = {
+        disabled: 'Disabled; install and enable edge identity hardware',
+        ready: 'Ready', hardware_error: 'Identity hardware error', invalid: 'Invalid neighbor data',
+        unavailable: 'Identity hardware unavailable'
+      }[record.neighborDetection] || 'Identity hardware unavailable';
+      const rows = Array.from({ length: 6 }, (_, side) => {
+        const state = getNeighborSideState(id, side);
+        const destination = state.neighbor ? ` → HEX-${String(state.neighbor.id).padStart(2, '0')} D${state.neighbor.side}` : '';
+        return `<div data-neighbor-side="${side}" data-neighbor-state="${state.kind}">D${side}${destination} · <span>${state.label}</span></div>`;
+      }).join('');
+      return `<b style="color:var(--accent-on)">Hall D0–D5：</b>${record.halls ? record.halls.map((active, side) => `D${side}: ${active ? 'DETECTED' : 'clear'}`).join(' · ') : '--'}<br>
+        <b style="color:var(--accent-on)">Neighbor detection:</b> <span>${readiness}</span>
+        <div style="margin:6px 0" aria-live="polite">${rows}</div>
+        <small>Confirmed neighbors require matching identities and active Hall sensors on both modules. Display positions are configured coordinates.</small>`;
+    }
+
+    function refreshNeighborDetails() {
+      const section = document.getElementById('deviceNeighborDetails');
+      if (!section || !document.getElementById('modalRoot').classList.contains('active')) return;
+      const html = renderNeighborDetails(Number(section.dataset.nodeId));
+      if (section._neighborHtml !== html) {
+        section.innerHTML = html;
+        section._neighborHtml = html;
+      }
+    }
+
+    function refreshNeighborTopology() {
+      if (!hardwareSessionStarted) return;
+      buildEdges();
+      refreshNeighborDetails();
+      drawAll();
+    }
+
     function startHardwareSession() {
       if (hardwareSessionStarted) return;
       hardwareSessionStarted = true;
@@ -764,6 +894,13 @@
 
     function setHardwareConnected(connected, endpointLabel) {
       if (connected) startHardwareSession();
+      if (!connected) {
+        // A new transport session needs fresh identity reports from both endpoints.
+        // Retain Hall readings for reference, but never reuse a pre-disconnect claim.
+        deviceTelemetry.forEach(record => {
+          if (record.source === TELEMETRY_SOURCE_LIVE) record.edgeNeighbors = null;
+        });
+      }
       isHardwareConnected = connected;
       const badge = document.getElementById('baseConnBadge');
       const btnText = document.getElementById('btnSerialText');
@@ -810,6 +947,7 @@
         }
       }
       updateBaseStationUI();
+      refreshNeighborTopology();
     }
 
     function markConnectionStale(reason = 'Telemetry timeout') {
@@ -839,6 +977,8 @@
     function startConnectionHealthMonitor() {
       if (connectionHealthInterval) clearInterval(connectionHealthInterval);
       connectionHealthInterval = setInterval(refreshHardwareHealth, 5000);
+      if (neighborHealthInterval) clearInterval(neighborHealthInterval);
+      neighborHealthInterval = setInterval(refreshNeighborTopology, 250);
     }
 
     function refreshHardwareHealth() {
@@ -850,7 +990,7 @@
       buildDeviceTable();
       updateStats();
       updateBaseStationUI();
-      drawAll();
+      refreshNeighborTopology();
     }
 
     function toggleBaseMode() {
@@ -1168,6 +1308,9 @@
           telemetry.hallMask = hallMask;
           telemetry.halls = hallMask === null ? null : Array.from({ length: 6 }, (_, i) => Boolean(hallMask & (1 << i)));
           telemetry.configBits = Number.isInteger(data.config_bits) ? data.config_bits : null;
+          telemetry.bootId = validNeighborUint(data.boot_id, true) ? data.boot_id : null;
+          // Missing or malformed identity data clears earlier claims; Hall presence cannot fill them in.
+          Object.assign(telemetry, readNeighborPayload(data));
           if (!deviceIds.includes(data.id)) {
             deviceIds.push(data.id);
             deviceIds.sort((a, b) => a - b);
@@ -1203,6 +1346,16 @@
           drawAll();
           buildDeviceTable();
           buildPowerLog();
+        } else if (data.type === 'node_status') {
+          if (Number.isInteger(data.id) && data.id >= 1 && data.id <= 255 && data.status === 'offline') {
+            const record = deviceTelemetry.get(data.id);
+            if (record?.source === TELEMETRY_SOURCE_LIVE) {
+              record.status = 'offline';
+              activePeerNodes.delete(data.id);
+              buildDeviceTable();
+              updateStats();
+            }
+          }
         } else if (data.type === 'heartbeat') {
           if (data.uptime !== undefined) baseStationUptime = data.uptime;
           if (data.last_rx_ago_ms !== undefined) baseStationLatency = data.last_rx_ago_ms === null ? '--' : data.last_rx_ago_ms + 'ms';
@@ -1224,6 +1377,7 @@
           showToast(data.msg || data.error || 'Gateway error');
         }
         updateBaseStationUI();
+        refreshNeighborTopology();
       } catch (err) {
         appendTerminalLog('sys', `Raw String: ${rawLine}`);
       }
@@ -1376,6 +1530,9 @@
       apSecrets: { path: 'firmware/uno_r4_mqtt_gateway/AccessPointSecrets.example.h', label: 'AccessPointSecrets.example.h' },
       unoAccessPoint: { path: 'firmware/uno_r4_mqtt_gateway/UnoAccessPoint.h', label: 'UnoAccessPoint.h' },
       mqttNodeConfig: { path: 'firmware/esp32_mqtt_solar_node/NodeConfig.h', label: 'MQTT NodeConfig.h' },
+      mqttEdgeIdentity: { path: 'firmware/esp32_mqtt_solar_node/EdgeIdentity.h', label: 'EdgeIdentity.h' },
+      mqttEdgeUart: { path: 'firmware/esp32_mqtt_solar_node/Sc16is752.h', label: 'Sc16is752.h' },
+      neighborGuide: { path: 'firmware/NEIGHBOR-DETECTION.md', label: 'Neighbor detection wiring' },
       mqttGuide: { path: 'firmware/MQTT.md', label: 'UNO R4 / MQTT setup' },
       gateway: { path: 'firmware/esp32_base_station_gateway/esp32_base_station_gateway.ino', label: 'Legacy gateway .ino' },
       gatewayConfig: { path: 'firmware/esp32_base_station_gateway/GatewayConfig.h', label: 'GatewayConfig.h' },
@@ -2733,10 +2890,9 @@
     <div style="margin-top:16px; padding:12px; background:rgba(0,229,200,0.05); border-radius:4px; border:1px solid rgba(0,229,200,0.2)">
       <b style="color:var(--accent-on)">MAC 位址：</b>${escapeHtml(record.mac)}<br>
       <b style="color:var(--accent-on)">資料來源：</b>${record.source === TELEMETRY_SOURCE_LIVE ? 'Live telemetry' : 'Simulation sample'}<br>
-      <b style="color:var(--accent-on)">Hall D0–D5：</b>${record.halls ? record.halls.map((active, index) => `D${index}: ${active ? 'DETECTED' : 'clear'}`).join(' · ') : '--'}<br>
+      <div id="deviceNeighborDetails" data-node-id="${id}">${renderNeighborDetails(id)}</div>
       <b style="color:var(--accent-on)">D6–D8 configuration：</b>${record.configBits === null || record.configBits === undefined ? 'Manual / unavailable' : `D6=${record.configBits & 1}, D7=${(record.configBits >> 1) & 1}, D8=${(record.configBits >> 2) & 1} (1 = grounded); ID=${record.id}`}<br>
       <b style="color:var(--accent-on)">Power control：</b>${record.powerControlAvailable ? 'Configured' : 'Unavailable'}<br>
-      <small>Hall states report magnet/contact detection. Neighbor identities and physical routing require a configured map.</small>
     </div>
   </div>`;
       const footer = `<button class="toolbar-btn danger" onclick="closeModal()">關閉</button><button class="toolbar-btn primary" onclick="closeModal(); navigateTo('overview')">定位</button>`;
@@ -2975,6 +3131,10 @@
       }
     });
     window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('focus', refreshNeighborTopology);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) refreshNeighborTopology();
+    });
     const canvasResizeObserver = new ResizeObserver(resizeCanvas);
     canvasResizeObserver.observe(canvas.parentElement);
     window.addEventListener('load', () => {

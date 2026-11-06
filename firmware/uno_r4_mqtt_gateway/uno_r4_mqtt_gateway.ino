@@ -145,6 +145,65 @@ void command(JsonDocument &doc) {
     if (!count) error("no_online_nodes");
   }
 }
+int macHex(char value) {
+  if (value >= '0' && value <= '9') return value - '0';
+  if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+  if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+  return -1;
+}
+bool normalizeMac(JsonVariantConst value, char (&canonical)[18]) {
+  if (!value.is<const char *>()) return false;
+  const char *text = value.as<const char *>();
+  if (strlen(text) != 17) return false;
+  uint8_t bytes[6]; bool nonzero = false;
+  for (unsigned i = 0; i < 6; ++i) {
+    const unsigned offset = 3 * i;
+    const int high = macHex(text[offset]), low = macHex(text[offset+1]);
+    if (high < 0 || low < 0 || (i < 5 && text[offset+2] != ':')) return false;
+    bytes[i] = uint8_t((high << 4) | low); nonzero |= bytes[i] != 0;
+  }
+  if (!nonzero || (bytes[0] & 1U)) return false; // Only individual, nonzero addresses.
+  snprintf(canonical, sizeof(canonical), "%02X:%02X:%02X:%02X:%02X:%02X",
+           bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]);
+  return true;
+}
+bool normalizeEdgeNeighbors(JsonDocument &doc, unsigned id, const char *localMac) {
+  const bool missingState = doc["neighbor_detection"].isUnbound();
+  const bool missingNeighbors = doc["edge_neighbors"].isUnbound();
+  if (missingState && missingNeighbors) {
+    // Hall-only firmware remains usable, but never acquires a guessed identity.
+    doc["neighbor_detection"] = "disabled";
+    JsonArray empty = doc["edge_neighbors"].to<JsonArray>();
+    for (unsigned i = 0; i < 6; ++i) empty.add(nullptr);
+    return true;
+  }
+  if (missingState || missingNeighbors || !doc["neighbor_detection"].is<const char *>() ||
+      !doc["edge_neighbors"].is<JsonArray>()) return false;
+  const char *state = doc["neighbor_detection"];
+  const bool ready = !strcmp(state, "ready");
+  if (!ready && strcmp(state, "disabled") && strcmp(state, "hardware_error")) return false;
+  JsonArray peers = doc["edge_neighbors"].as<JsonArray>();
+  if (peers.size() != 6) return false;
+  const unsigned mask = doc["hall_mask"];
+  for (unsigned side = 0; side < 6; ++side) {
+    JsonVariant peer = peers[side];
+    if (peer.isNull()) continue;
+    if (!ready || !(mask & (1U << side)) || !peer.is<JsonObject>() ||
+        !solarId(peer["id"]) || peer["id"].as<unsigned>() == id ||
+        !solarUInt(peer["side"]) || peer["side"].as<unsigned>() >= 6 ||
+        !solarUInt(peer["boot_id"]) || peer["boot_id"].as<uint32_t>() == 0 ||
+        !solarUInt(peer["age_ms"]) || peer["age_ms"].as<uint32_t>() >= 3000) return false;
+    char peerMac[18];
+    if (!normalizeMac(peer["mac"], peerMac) || !strcmp(localMac, peerMac)) return false;
+    peer["mac"] = peerMac;
+    for (unsigned previous = 0; previous < side; ++previous) {
+      JsonVariant other = peers[previous];
+      if (!other.isNull() && (other["id"].as<unsigned>() == peer["id"].as<unsigned>() ||
+          !strcmp(other["mac"].as<const char *>(), peerMac))) return false;
+    }
+  }
+  return true;
+}
 void onMqtt(int size) {
   const String topic = mqtt.messageTopic();
   JsonDocument doc; if (!solarRead(mqtt, size, doc)) return;
@@ -164,9 +223,20 @@ void onMqtt(int size) {
   solarTopic(expected, sizeof(expected), id, "telemetry");
   if (topic != expected || !solarUInt(doc["boot_id"]) || !solarUInt(doc["seq"]) ||
       !solarUInt(doc["uptime_ms"]) || !solarUInt(doc["hall_mask"]) || doc["hall_mask"].as<unsigned>() > 63 ||
-      !doc["enabled"].is<bool>() || !doc["power_control_available"].is<bool>() ||
-      !doc["mac"].is<const char *>() || strlen(doc["mac"]) != 17) return;
-  if (node.online && millis() - node.lastSeen < MC::NODE_TIMEOUT_MS && strcmp(node.mac, doc["mac"])) {
+      doc["boot_id"].as<uint32_t>() == 0 || !doc["enabled"].is<bool>() ||
+      !doc["power_control_available"].is<bool>()) return;
+  char localMac[18];
+  if (!normalizeMac(doc["mac"], localMac) || !normalizeEdgeNeighbors(doc, id, localMac)) return;
+  doc["mac"] = localMac;
+  // Edge identities are local observations. The console requires fresh, reciprocal
+  // claims matching both nodes' current MAC and boot ID before confirming a link.
+  doc["type"] = "telemetry"; doc["status"] = "online";
+  const unsigned mask = doc["hall_mask"];
+  JsonArray halls = doc["halls"].to<JsonArray>();
+  for (unsigned i = 0; i < 6; ++i) halls.add(bool(mask & (1U << i)));
+  doc["voltage"] = nullptr; doc["current"] = nullptr; doc["power"] = nullptr; doc["temp"] = nullptr;
+  if (measureJson(doc) > MC::MAX_FRAME) return;
+  if (node.online && millis() - node.lastSeen < MC::NODE_TIMEOUT_MS && strcmp(node.mac, localMac)) {
     error("duplicate_node_id", id); return;
   }
   const uint32_t boot = doc["boot_id"], seq = doc["seq"];
@@ -174,12 +244,7 @@ void onMqtt(int size) {
   if (node.pending && node.boot != boot) finish(id, false, "node_rebooted");
   node.seen = node.online = true; node.boot = boot; node.seq = seq;
   node.lastSeen = millis(); node.uptime = doc["uptime_ms"];
-  snprintf(node.mac, sizeof(node.mac), "%s", doc["mac"].as<const char *>());
-  doc["type"] = "telemetry"; doc["status"] = "online";
-  const unsigned mask = doc["hall_mask"];
-  JsonArray halls = doc["halls"].to<JsonArray>();
-  for (unsigned i = 0; i < 6; ++i) halls.add(bool(mask & (1U << i)));
-  doc["voltage"] = nullptr; doc["current"] = nullptr; doc["power"] = nullptr; doc["temp"] = nullptr;
+  snprintf(node.mac, sizeof(node.mac), "%s", localMac);
   emit(doc);
 }
 void serialCommands() {

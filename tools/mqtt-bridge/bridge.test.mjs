@@ -46,6 +46,17 @@ test('gateway events, browser commands, retained rejection and offline failure',
     gatewayPeer.write(packet(0x30, Buffer.concat([text(topic), Buffer.from('{"type":"telemetry","id":1,"hall_mask":5}')] )));
     await waitFor(() => received.length);
     assert.equal(received.length,1); assert.equal(received[0].id,1);
+    const complete = { type: 'telemetry', id: 1, neighbor_detection: 'ready', hall_mask: 63,
+      edge_neighbors: Array.from({ length: 6 }, (_, side) => ({ id: side+2, side: 5-side,
+        boot_id: 4294967295, mac: `02:00:00:00:00:0${side+2}`, age_ms: 2999 })),
+      extension: 'x'.repeat(600) };
+    const completePayload = Buffer.from(JSON.stringify(complete));
+    assert.ok(completePayload.length > 1024 && completePayload.length <= 2048);
+    gatewayPeer.write(packet(0x31, Buffer.concat([text(topic), completePayload])));
+    gatewayPeer.write(packet(0x30, Buffer.concat([text(topic), Buffer.from(JSON.stringify({ ...complete, extension: 'x'.repeat(2200) }))])));
+    gatewayPeer.write(packet(0x30, Buffer.concat([text(topic), completePayload])));
+    await waitFor(() => received.length === 2);
+    assert.deepEqual(received[1], complete, 'six-edge telemetry larger than the old limit is forwarded whole');
     ws.send('{"cmd":"request_telemetry","id":1}');
     await waitFor(() => publishes.length);
     assert.equal(publishes[0].topic,'hexagon/v1/gateways/uno-r4/command');

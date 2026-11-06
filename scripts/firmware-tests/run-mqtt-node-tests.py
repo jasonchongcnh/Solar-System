@@ -31,8 +31,7 @@ with tempfile.TemporaryDirectory(prefix="hexagon-mqtt-node-tests-") as temporary
         '#define SOLAR_MQTT_PORT 1883\n#define SOLAR_MQTT_USER ""\n#define SOLAR_MQTT_PASSWORD ""\n',
         encoding="utf8",
     )
-    executable = output / "mqtt-node-tests.exe"
-    subprocess.run([
+    command = [
         # The disabled relay sentinel (-1) makes uint8_t pin == relay a constant
         # false comparison in this default configuration on older desktop GCC.
         args.compiler, "-std=c++14", "-Wall", "-Wextra", "-pedantic", "-Wno-type-limits",
@@ -41,10 +40,17 @@ with tempfile.TemporaryDirectory(prefix="hexagon-mqtt-node-tests-") as temporary
         '-DSOLAR_WIFI_SSID="legacy-router"', '-DSOLAR_WIFI_PASSWORD="legacy-password"',
         '-DSOLAR_MQTT_HOST="203.0.113.99"',
         '-DSOLAR_NODE_SKETCH="' + (output / "esp32_mqtt_solar_node.ino").as_posix() + '"',
-        str(here / "mqtt-node-harness.cpp"), "-o", str(executable),
-    ], check=True)
+        str(here / "mqtt-node-harness.cpp"),
+    ]
     environment = os.environ.copy()
     compiler_path = pathlib.Path(args.compiler).resolve()
     if compiler_path.is_file():
         environment["PATH"] = str(compiler_path.parent) + os.pathsep + environment.get("PATH", "")
-    subprocess.run([str(executable)], check=True, env=environment)
+    for label, definitions in (
+        ("disabled", ["-DSOLAR_EDGE_IDENTITY_ENABLED=0"]),
+        ("enabled", ["-DSOLAR_EDGE_IDENTITY_ENABLED=1"]),
+        ("pin-conflict", ["-DSOLAR_EDGE_IDENTITY_ENABLED=1", "-DSOLAR_EDGE_SDA_PIN=D0", "-DSOLAR_TEST_EDGE_PIN_CONFLICT=1"]),
+    ):
+        executable = output / ("mqtt-node-tests-edge-%s.exe" % label)
+        subprocess.run(command + definitions + ["-o", str(executable)], check=True)
+        subprocess.run([str(executable)], check=True, env=environment)

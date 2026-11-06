@@ -25,7 +25,7 @@ export function createBridge({ broker = 'mqtt://127.0.0.1:1883', host = '127.0.0
   client.on('close', () => { subscribed = false; });
   client.on('error', () => report('mqtt_connection_error'));
   client.on('message', (topic, payload, packet) => {
-    if (topic !== `${base}/events` || packet.retain || payload.length > 1024) return;
+    if (topic !== `${base}/events` || packet.retain || payload.length > 2048) return;
     try {
       const doc = JSON.parse(payload.toString());
       if (!doc || Array.isArray(doc) || typeof doc.type !== 'string') return;

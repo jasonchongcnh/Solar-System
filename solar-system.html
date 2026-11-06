@@ -90,10 +90,10 @@
             <ol class="algorithm-steps">
                 <li><strong>Build the array</strong><span>Place modules on an axial hexagonal grid and merge matching sides.</span></li>
                 <li><strong>Create the graph</strong><span>Record each shared side as a two-way link between module IDs.</span></li>
-                <li><strong>Search with backtracking</strong><span>Try an unvisited neighbour, undo a choice that reaches a dead end, and continue until every enabled module is included.</span></li>
-                <li><strong>Prefer a loop</strong><span>If the final module connects back to the start, display a closed route; otherwise, show the first complete open route.</span></li>
+                <li><strong>Maximize module coverage</strong><span>Compare connected routes and choose one that visits the largest possible number of enabled modules, even when a full route is impossible.</span></li>
+                <li><strong>Prefer a loop</strong><span>When routes cover the same number of modules, prefer a closed loop. Otherwise, show the longest open route.</span></li>
             </ol>
-            <p class="algorithm-intro__note">The route visits each enabled module once. Disabled modules are excluded from the search.</p>
+            <p class="algorithm-intro__note">The route visits each selected module once, returning to the start only for a loop. Disabled modules are excluded from the search.</p>
         </section>
         
         <div class="controls">
@@ -111,10 +111,13 @@
         <div class="stats" role="status" aria-live="polite">
             <p id="pathCount">Number of unique connection paths: 0</p>
             <p id="pathInfo">Path information: Not yet calculated</p>
+            <p id="pathSequence" hidden></p>
+            <p id="pathOmitted" hidden></p>
         </div>
     </div>
 
     <script src="assets/js/vendor/lucide.min.js"></script>
+    <script src="assets/js/array-path.js"></script>
     <script>
         lucide.createIcons({ nameAttr: 'data-icon', attrs: { 'aria-hidden': 'true', focusable: 'false' } });
         const canvas = document.getElementById('canvas');
@@ -136,9 +139,14 @@
             pathAnimationTimers = [];
         }
 
-        function updatePathInfo(message, isError = false) {
+        function updatePathInfo(message, isError = false, isPartial = false) {
             const pathInfo = document.getElementById('pathInfo');
             pathInfo.textContent = `Path information: ${message}`;
+            pathInfo.classList.toggle('is-partial', isPartial);
+            for (const id of ['pathSequence', 'pathOmitted']) {
+                document.getElementById(id).hidden = true;
+                document.getElementById(id).textContent = '';
+            }
             if (isError) {
                 // Restart the visual cue when the same error happens twice in a row.
                 pathInfo.classList.remove('is-error');
@@ -496,118 +504,6 @@
             return hexagons.length > 0;
         }
         
-        function findEulerPath() {
-            // 獲取啟用的六邊形
-            const enabledHexagons = hexagons.filter(hex => hex.enabled);
-            
-            if (enabledHexagons.length === 0) {
-                alert(labText("Please enable at least one hexagon first!"));
-                return null;
-            }
-            
-            const enabledHexIds = enabledHexagons.map(hex => hex.id);
-            const startHexId = enabledHexIds[0];
-            
-            // 使用深度優先搜索（DFS）回溯法尋找哈密頓迴路
-            function solve(currentHexId, visited, path) {
-                // 如果所有啟用的六邊形都已訪問
-                if (visited.size === enabledHexagons.length) {
-                    // 檢查是否可以回到起點形成閉合路徑
-                    let canReturn = false;
-                    for (const edge of edges) {
-                        if ((edge.hexId1 === currentHexId && edge.hexId2 === startHexId) || 
-                            (edge.hexId2 === currentHexId && edge.hexId1 === startHexId)) {
-                            canReturn = true;
-                            break;
-                        }
-                    }
-                    if (canReturn) {
-                        return [...path, startHexId]; // 返回六邊形 ID 序列，包含回到的起點
-                    }
-                    return null;
-                }
-                
-                // 獲取當前六邊形的所有鄰居（且是啟用的且未訪問的）
-                const neighbors = [];
-                for (const edge of edges) {
-                    let nextHexId = null;
-                    if (edge.hexId1 === currentHexId && edge.hexId2 !== null && 
-                        enabledHexIds.includes(edge.hexId2) && !visited.has(edge.hexId2)) {
-                        nextHexId = edge.hexId2;
-                    } else if (edge.hexId2 === currentHexId && 
-                               enabledHexIds.includes(edge.hexId1) && !visited.has(edge.hexId1)) {
-                        nextHexId = edge.hexId1;
-                    }
-                    
-                    if (nextHexId !== null) {
-                        neighbors.push(nextHexId);
-                    }
-                }
-                
-                // 嘗試每個鄰居
-                for (const nextId of neighbors) {
-                    visited.add(nextId);
-                    path.push(nextId);
-                    
-                    const result = solve(nextId, visited, path);
-                    if (result) return result;
-                    
-                    // 回溯
-                    path.pop();
-                    visited.delete(nextId);
-                }
-                
-                return null;
-            }
-            
-            const visited = new Set([startHexId]);
-            let path = solve(startHexId, visited, [startHexId]);
-            
-            // 如果找不到閉合路徑，嘗試尋找開放路徑（不一定要回到起點）
-            if (!path) {
-                // 嘗試從每個可能的起點開始尋找開放路徑
-                for (const sId of enabledHexIds) {
-                    const v = new Set([sId]);
-                    const p = solveOpenPath(sId, v, [sId], enabledHexagons.length, enabledHexIds);
-                    if (p) return p;
-                }
-            }
-            
-            return path;
-        }
-        
-        // 尋找開放路徑的輔助函數
-        function solveOpenPath(currentHexId, visited, path, targetCount, enabledHexIds) {
-            if (visited.size === targetCount) {
-                return path;
-            }
-            
-            const neighbors = [];
-            for (const edge of edges) {
-                let nextHexId = null;
-                if (edge.hexId1 === currentHexId && edge.hexId2 !== null && 
-                    enabledHexIds.includes(edge.hexId2) && !visited.has(edge.hexId2)) {
-                    nextHexId = edge.hexId2;
-                } else if (edge.hexId2 === currentHexId && 
-                           enabledHexIds.includes(edge.hexId1) && !visited.has(edge.hexId1)) {
-                    nextHexId = edge.hexId1;
-                }
-                if (nextHexId !== null) {
-                    neighbors.push(nextHexId);
-                }
-            }
-
-            for (const nextId of neighbors) {
-                visited.add(nextId);
-                path.push(nextId);
-                const result = solveOpenPath(nextId, visited, path, targetCount, enabledHexIds);
-                if (result) return result;
-                path.pop();
-                visited.delete(nextId);
-            }
-            return null;
-        }
-        
         function countUniquePaths() {
             return Math.max(0, hexagons.length - 1);
         }
@@ -630,14 +526,23 @@
         }
         
         function drawEulerPath(path) {
-            if (!path || path.length < 2) {
-                if (!path) {
-                    ctx.fillStyle = 'red';
-                    ctx.font = '24px Arial';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText(labText('無法找到一筆畫路徑！'), canvas.width / 2, canvas.height / 2);
-                }
+            cancelPathAnimation();
+            if (!path?.length) return;
+            if (path.length === 1) {
+                const hex = hexagons.find(module => module.id === path[0] && module.enabled);
+                if (!hex) return;
+                ctx.beginPath();
+                ctx.arc(hex.centerX, hex.centerY, 20, 0, Math.PI * 2);
+                ctx.fillStyle = 'white';
+                ctx.fill();
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.fillStyle = '#333';
+                ctx.font = 'bold 12px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('S:1', hex.centerX, hex.centerY);
                 return;
             }
 
@@ -666,7 +571,6 @@
 
             let delay = 0;
             const animationStep = 100;
-            cancelPathAnimation();
             const animationVersion = pathAnimationVersion;
 
             // 繪製路徑
@@ -766,12 +670,23 @@
                 return;
             }
             
-            const path = findEulerPath();
+            const path = findMaximumModulePath(hexagons, edges);
             const containsOnlyEnabledModules = path?.every(id => hexagons.find(hex => hex.id === id)?.enabled);
             if (path && containsOnlyEnabledModules) {
                 displayedPath = path;
                 drawHexagonGrid();
-                updatePathInfo('All enabled hexagons are connected');
+                const covered = new Set(path);
+                const omitted = enabledHexagons.filter(hex => !covered.has(hex.id));
+                const summary = `Maximum connected stroke path: ${covered.size} / ${enabledHexagons.length} enabled modules.`;
+                updatePathInfo(omitted.length ? `A full stroke path is unavailable. ${summary}` : summary, false, omitted.length > 0);
+                const sequence = document.getElementById('pathSequence');
+                sequence.textContent = `Module order: ${path.join(' → ')}`;
+                sequence.hidden = false;
+                if (omitted.length) {
+                    const outside = document.getElementById('pathOmitted');
+                    outside.textContent = `Enabled modules outside this path: ${omitted.map(hex => hex.id).join(', ')}`;
+                    outside.hidden = false;
+                }
             } else {
                 showPathError('No complete stroke path exists for the enabled modules. Try enabling a neighbouring module or changing the array.');
             }

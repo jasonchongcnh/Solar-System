@@ -8,7 +8,7 @@
 namespace MC {
 constexpr char ROOT[] = "hexagon/v1";
 constexpr char GATEWAY[] = "uno-r4";
-constexpr unsigned MAX_FRAME = 1024;
+constexpr unsigned MAX_FRAME = 2048;
 constexpr unsigned RETRY_MS = 5000;
 constexpr unsigned NODE_TIMEOUT_MS = 15000;
 constexpr unsigned COMMAND_TIMEOUT_MS = 1500;

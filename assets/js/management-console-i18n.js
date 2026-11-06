@@ -594,6 +594,33 @@ Simulation|Simulation|模擬模式
 stale|stale|逾時
 資料來源：|Data Source:
 Hall D0–D5：|Hall D0–D5:|霍爾感測 D0–D5：
+Neighbor detection:|Neighbor detection:|鄰接模組偵測：
+Neighbor detection wiring|Neighbor detection wiring|鄰接模組偵測接線
+No live identity data|No live identity data|尚無即時識別資料
+Gateway disconnected|Gateway disconnected|網關已斷線
+Node offline|Node offline|本模組已離線
+Node telemetry stale|Node telemetry stale|本模組遙測已逾時
+Hall data unavailable|Hall data unavailable|無可用霍爾資料
+Detected; identity hardware disabled|Detected; identity hardware disabled|已偵測；識別硬體未啟用
+Detected; identity hardware error|Detected; identity hardware error|已偵測；識別硬體發生錯誤
+Detected; identity hardware unavailable|Detected; identity hardware unavailable|已偵測；無可用識別硬體
+Detected; awaiting identity|Detected; awaiting identity|已偵測；等待識別資料
+Invalid neighbor data|Invalid neighbor data|鄰接模組資料無效
+Invalid node identity|Invalid node identity|本模組識別資料無效
+Neighbor identity stale|Neighbor identity stale|鄰接識別資料已逾時
+Neighbor telemetry stale|Neighbor telemetry stale|鄰接模組遙測已逾時
+Waiting for peer telemetry|Waiting for peer telemetry|等待對端遙測資料
+Waiting for peer confirmation|Waiting for peer confirmation|等待對端確認
+Neighbor offline|Neighbor offline|鄰接模組已離線
+Identity conflict|Identity conflict|識別資料不一致
+Hall state conflict|Hall state conflict|霍爾狀態不一致
+Confirmed|Confirmed|已確認
+Ready|Ready|已就緒
+Disabled; install and enable edge identity hardware|Disabled; install and enable edge identity hardware|未啟用；請安裝並啟用邊緣識別硬體
+Identity hardware error|Identity hardware error|識別硬體發生錯誤
+Identity hardware unavailable|Identity hardware unavailable|無可用識別硬體
+Confirmed neighbors require matching identities and active Hall sensors on both modules. Display positions are configured coordinates.|Confirmed neighbors require matching identities and active Hall sensors on both modules. Display positions are configured coordinates.|兩端識別資料吻合且霍爾均偵測到磁鐵，才確認為相鄰模組。畫面位置使用預先設定的座標。
+Live route execution is unavailable: neighboring modules can be detected, but no inspection robot or route executor is configured.|Live route execution is unavailable: neighboring modules can be detected, but no inspection robot or route executor is configured.|實體路徑尚無法執行：系統可偵測鄰接模組，但尚未設定巡檢機器人或路徑執行裝置。
 D6–D8 configuration：|D6–D8 Configuration:|D6–D8 編號設定：
 Manual / unavailable|Manual / unavailable|手動設定／無可用資料
 Power control：|Power Control:|電源控制：
@@ -670,10 +697,14 @@ Place modules on an axial hexagonal grid and merge matching sides.|Place modules
 Create the graph|Create the graph|建立圖形
 Record each shared side as a two-way link between module IDs.|Record each shared side as a two-way link between module IDs.|將每條共用邊記錄為模組編號之間的雙向連線。
 Search with backtracking|Search with backtracking|以回溯法搜尋
+Maximize module coverage|Maximize module coverage|連接最多模組
+Compare connected routes and choose one that visits the largest possible number of enabled modules, even when a full route is impossible.|Compare connected routes and choose one that visits the largest possible number of enabled modules, even when a full route is impossible.|比較可連接的路徑，即使無法連接全部模組，仍選取能走訪最多啟用模組的路徑。
 Try an unvisited neighbour, undo a choice that reaches a dead end, and continue until every enabled module is included.|Try an unvisited neighbour, undo a choice that reaches a dead end, and continue until every enabled module is included.|嘗試尚未走訪的相鄰模組；若遇到死路便撤銷選擇，持續搜尋至所有啟用模組均納入路徑。
 Prefer a loop|Prefer a loop|優先形成迴路
+When routes cover the same number of modules, prefer a closed loop. Otherwise, show the longest open route.|When routes cover the same number of modules, prefer a closed loop. Otherwise, show the longest open route.|路徑涵蓋的模組數量相同時，優先選擇閉合迴路；否則顯示最長的開放路徑。
 If the final module connects back to the start, display a closed route; otherwise, show the first complete open route.|If the final module connects back to the start, display a closed route; otherwise, show the first complete open route.|若最後一個模組可連回起點，便顯示閉合路徑；否則顯示第一條完整的開放路徑。
 The route visits each enabled module once. Disabled modules are excluded from the search.|The route visits each enabled module once. Disabled modules are excluded from the search.|路徑會各走訪一次啟用模組；停用模組不會納入搜尋。
+The route visits each selected module once, returning to the start only for a loop. Disabled modules are excluded from the search.|The route visits each selected module once, returning to the start only for a loop. Disabled modules are excluded from the search.|路徑會各走訪一次所選模組，僅在形成迴路時返回起點；停用模組不會納入搜尋。
 Number of hexagons:|Number of hexagons:|六角模組數量：
 Generate a honeycomb|Generate a honeycomb|產生蜂窩陣列
 Find a stroke path|Find a stroke path|尋找一筆畫路徑
@@ -687,6 +718,11 @@ No hexagons enabled|No hexagons enabled|尚未啟用模組
 Can draw connecting path|Can draw connecting path|可繪製連接路徑
 Can't draw path|Can't draw path|無法繪製路徑
 All enabled hexagons are connected|All enabled hexagons are connected|所有啟用模組已連接
+A full stroke path is unavailable.|A full stroke path is unavailable.|無法以一筆畫連接所有啟用模組。
+Maximum connected stroke path:|Maximum connected stroke path:|可連接最多模組的一筆畫路徑：
+enabled modules.|enabled modules.|個啟用模組。
+Module order:|Module order:|模組連接順序：
+Enabled modules outside this path:|Enabled modules outside this path:|未納入此路徑的啟用模組：
 No complete stroke path exists for the enabled modules. Try enabling a neighbouring module or changing the array.|No complete stroke path exists for the enabled modules. Try enabling a neighbouring module or changing the array.|啟用模組之間找不到完整的一筆畫路徑。請啟用相鄰模組或變更陣列配置後再試。
 Please enable at least one hexagon first!|Please enable at least one hexagon first!|請先啟用至少一個六角模組！
 Please enter number between 1 to 20!|Please enter number between 1 to 20!|請輸入 1 至 20 之間的數量！

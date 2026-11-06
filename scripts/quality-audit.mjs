@@ -72,7 +72,7 @@ async function auditChinese(page, label) {
       for (const name of ['title', 'placeholder', 'aria-label']) if (element.hasAttribute(name)) texts.add(element.getAttribute(name));
     });
     // Product/protocol names, account IDs, units and literal examples are not UI prose.
-    const technical = /\b(?:Hexagon Solar|HEXAGON SOLAR|HexagonSolar\/1|HexagonSolar-BaseGateway|HexagonSolar-UNO-R4|XIAO|Mosquitto|UNO|MQTT|wss?|UnoAccessPoint\.h|AccessPointConfig\.h|AccessPointSecrets\.example\.h|MqttSettings\.h|MqttSupport\.h|Secrets\.example\.h|ESP-NOW|ESP32|Web Serial|WebSocket|USB Serial|USB|Wi-Fi|HTTP|HTTPS|localhost|Chrome|Edge|Firefox|Safari|JSON|CSV|MAC|IP|RSSI|GPIO|MPPT|OVP|OTP|LM2596|Buck|CO2|kWh|dBm|baud|admin|operator|guest|README|SolarProtocol\.h|GatewayConfig\.h|NodeConfig\.h|firmware|ino|HEX-\d+|Base-\d+|HS1|ACK|RX|TX|success|true|false)\b/gi;
+    const technical = /\b(?:Hexagon Solar|HEXAGON SOLAR|HexagonSolar\/1|HexagonSolar-BaseGateway|HexagonSolar-UNO-R4|XIAO|Mosquitto|UNO|MQTT|wss?|UnoAccessPoint\.h|AccessPointConfig\.h|AccessPointSecrets\.example\.h|MqttSettings\.h|MqttSupport\.h|Secrets\.example\.h|EdgeIdentity\.h|Sc16is752\.h|ESP-NOW|ESP32|Web Serial|WebSocket|USB Serial|USB|Wi-Fi|HTTP|HTTPS|localhost|Chrome|Edge|Firefox|Safari|JSON|CSV|MAC|IP|RSSI|GPIO|MPPT|OVP|OTP|LM2596|Buck|CO2|kWh|dBm|baud|admin|operator|guest|README|SolarProtocol\.h|GatewayConfig\.h|NodeConfig\.h|firmware|ino|HEX-\d+|Base-\d+|HS1|ACK|RX|TX|success|true|false)\b/gi;
     return [...texts].filter(text => {
       const prose = text.replace(/\b[\w.+-]+@[\w.-]+\.[A-Za-z]+\b/g, '').replace(/(?:https?|wss?):\/\/\S+/g, '').replace(/\{[^\n]*\}/g, '').replace(technical, '');
       return /[A-Za-z]{3,}(?:[-'][A-Za-z]+)*/.test(prose);

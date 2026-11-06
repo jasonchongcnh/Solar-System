@@ -13,6 +13,7 @@
 using String = std::string;
 constexpr int A0 = 0;
 constexpr uint8_t D0 = 2, D1 = 3, D2 = 4, D3 = 5, D4 = 6, D5 = 7, D6 = 21, D7 = 20, D8 = 8;
+constexpr uint8_t D9 = 9, D10 = 10;
 constexpr int HIGH = 1, LOW = 0, INPUT = 0, INPUT_PULLUP = 2, OUTPUT = 1;
 namespace Mock {
 static uint32_t now = 100;

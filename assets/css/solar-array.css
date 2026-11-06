@@ -28,6 +28,8 @@ button:hover { background: var(--surface-selected); }
 canvas { border-color: var(--line); border-radius: 6px; background: var(--diagram-bg); }
 .stats { margin-top: 24px; padding: 14px 0; background: transparent; border-top: 1px solid var(--line); border-radius: 0; box-shadow: none; font-size: 13px; line-height: 1.8; }
 #pathInfo.is-error { margin: 8px -10px -2px; padding: 9px 10px; border-left: 3px solid #c43b3b; border-radius: 4px; background: color-mix(in srgb, #c43b3b 12%, var(--bg-panel)); color: var(--text-primary); font-weight: 600; animation: path-error-pulse 1.1s ease-in-out 2; }
+#pathInfo.is-partial { padding: 9px 10px; border-left: 3px solid var(--accent-warning); border-radius: 4px; background: var(--warning-bg); color: var(--warning-text); font-weight: 600; }
+#pathSequence, #pathOmitted { overflow-wrap: anywhere; }
 @keyframes path-error-pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, #c43b3b 16%, transparent); } }
 .lucide { width: 17px; height: 17px; stroke-width: 1.7; }
 a:focus-visible, button:focus-visible, input:focus-visible, canvas:focus-visible { outline: 3px solid var(--accent-purple); outline-offset: 4px; }
